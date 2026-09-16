@@ -162,6 +162,15 @@ class CitationSearchSkill(Skill):
         queries = await self._queries_for(ctx, gap)
         raw: list[dict[str, Any]] = []
 
+        cfg = get_config()
+        # Skip sources the configuration has switched off rather than calling them and
+        # logging a failure per query — an unattended run should not fill its log with
+        # the same "this is disabled" notice dozens of times a cycle.
+        disabled = {
+            "search_semantic_scholar": not cfg.get(
+                "research.sources.semantic_scholar.enabled", False),
+        }
+
         for query in queries[:3]:
             for tool_name, kwargs in (
                 ("search_openalex", {"query": query, "per_page": 6}),
@@ -170,7 +179,7 @@ class CitationSearchSkill(Skill):
                 ("search_acl_anthology", {"query": query, "limit": 4}),
                 ("search_semantic_scholar", {"query": query, "limit": 4}),
             ):
-                if tool_name not in ctx.allowed_tools:
+                if tool_name not in ctx.allowed_tools or disabled.get(tool_name):
                     continue
                 found = await ctx.try_call(tool_name, default=[], **kwargs)
                 raw.extend(found or [])

@@ -190,36 +190,39 @@ class ResearchSynthesisSkill(Skill):
                 for idx, vec in zip(missing, emb["vectors"]):
                     vectors[idx] = vec
 
-        parent = list(range(len(items)))
-
-        def find(x: int) -> int:
-            while parent[x] != x:
-                parent[x] = parent[parent[x]]
-                x = parent[x]
-            return x
-
-        def union(a: int, b: int) -> None:
-            ra, rb = find(a), find(b)
-            if ra != rb:
-                parent[rb] = ra
-
         concepts = [{c.lower().strip() for c in _item_concepts(it)} for it in items]
-        for i in range(len(items)):
-            for j in range(i + 1, len(items)):
-                ci, cj = concepts[i], concepts[j]
-                overlap = len(ci & cj) / max(1, min(len(ci), len(cj))) if ci and cj else 0.0
-                sim = (_cosine(vectors[i], vectors[j])
-                       if i in vectors and j in vectors else 0.0)
-                # Either a strong conceptual overlap or a strong semantic match is
-                # enough; requiring both fragments genuinely related work.
-                if overlap >= 0.5 or sim >= threshold:
-                    union(i, j)
 
-        groups: dict[int, list[dict[str, Any]]] = defaultdict(list)
-        for i, item in enumerate(items):
-            groups[find(i)].append(item)
+        def affinity(i: int, j: int) -> float:
+            ci, cj = concepts[i], concepts[j]
+            overlap = len(ci & cj) / max(1, min(len(ci), len(cj))) if ci and cj else 0.0
+            sim = _cosine(vectors[i], vectors[j]) if i in vectors and j in vectors else 0.0
+            return max(overlap, sim)
+
+        # Assignment is against the whole cluster, not a single member. Union-find on
+        # pairwise similarity is single-linkage, and single-linkage chains: A~B and
+        # B~C merges A with C even when A and C are unrelated. A real cycle showed
+        # exactly that — 23 items collapsed into one cluster titled "Structured Memory
+        # Taxonomies and Speculative Decoding", two genuinely separate topics fused,
+        # which then produces a verdict that is confused about what it is deciding.
+        order = sorted(range(len(items)), key=lambda i: -len(concepts[i]))
+        clusters: list[list[int]] = []
+
+        for i in order:
+            best_cluster, best_score = None, 0.0
+            for cluster in clusters:
+                scores = [affinity(i, j) for j in cluster]
+                # Mean rather than max: the item must fit the cluster as a whole.
+                score = sum(scores) / len(scores)
+                if score > best_score:
+                    best_cluster, best_score = cluster, score
+            if best_cluster is not None and best_score >= threshold:
+                best_cluster.append(i)
+            else:
+                clusters.append([i])
+
         min_size = int(cfg.get("synthesis.min_items_per_cluster", 1))
-        return [g for g in groups.values() if len(g) >= min_size]
+        groups = [[items[i] for i in cluster] for cluster in clusters]
+        return [g for g in groups if len(g) >= min_size]
 
     # -- synthesis ---------------------------------------------------------
     async def _synthesise_group(
