@@ -14,6 +14,7 @@ cites Reddit for a benchmark number.
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
 
 from ...config import get_config
@@ -295,7 +296,10 @@ class RepoAnalysisSkill(Skill):
                                          full_name=item.get("source_id", ""))
                 if act:
                     detail["activity"] = act
-        elif source_name == "huggingface" and "fetch_hf_model" in ctx.allowed_tools:
+        elif (source_name == "huggingface" and "fetch_hf_model" in ctx.allowed_tools
+                and _looks_like_hf_model_id(item.get("source_id", ""))):
+            # Guarded: Hugging Face daily-papers entries are identified by arXiv id,
+            # and looking one up as a model returns 401 from the models API.
             full = await ctx.try_call("fetch_hf_model", default=None,
                                       model_id=item.get("source_id", ""))
             if full:
@@ -449,6 +453,15 @@ class CommunitySignalSkill(Skill):
 
 
 # -- helpers ---------------------------------------------------------------
+
+
+_ARXIV_ID_SHAPE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
+
+
+def _looks_like_hf_model_id(source_id: str) -> bool:
+    """A Hugging Face model id is ``org/name``; an arXiv id is ``YYMM.NNNNN``."""
+    sid = (source_id or "").strip()
+    return bool(sid) and "/" in sid and not _ARXIV_ID_SHAPE.match(sid)
 
 
 def _allowed_kinds(ctx: AgentContext, source: str) -> set[EvidenceKind]:
