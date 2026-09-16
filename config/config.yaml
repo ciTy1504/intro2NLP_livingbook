@@ -104,8 +104,17 @@ research:
     reddit:         {enabled: false, note: "403 for script user-agents (measured 2026-09-16)"}
 
 synthesis:
-  dedupe_cosine_threshold: 0.86
-  cluster_cosine_threshold: 0.74
+  # CALIBRATED, not guessed. Measured over 780 real research-item pairs with
+  # gemini-embedding-001: the pairwise cosine distribution is min 0.749, p5 0.796,
+  # p50 0.831, p95 0.885, max 0.978. Any two ML abstracts sit at a high baseline
+  # similarity, so intuitive thresholds are far too low — the original 0.74 was
+  # *below the minimum observed pair*, meaning every item merged with every other and
+  # 40 items produced exactly one cluster.
+  #
+  # Re-measure after changing the embedding model:
+  #   python scripts/calibrate_clustering.py
+  dedupe_cosine_threshold: 0.94    # near-identical only; 0.86 merged distinct papers
+  cluster_cosine_threshold: 0.86   # ~p85; yields sensible topic groups (11/8/5/2/2/...)
   min_items_per_cluster: 1
   max_clusters_per_cycle: 12
 
