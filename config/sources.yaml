@@ -1,0 +1,141 @@
+# Concrete source endpoints and watchlists for the research agents.
+# Availability of every entry here was probed on 2026-09-16; see AUDIT.md §6.
+
+arxiv:
+  api: "http://export.arxiv.org/api/query"
+  categories: [cs.CL, cs.LG, cs.AI, cs.IR]
+  max_results_per_query: 40
+  sort_by: submittedDate
+
+openalex:
+  api: "https://api.openalex.org"
+  mailto: rndvcs@gmail.com            # polite pool
+  filters:
+    from_publication_date_days: 30
+    min_cited_by_count: 0
+
+semantic_scholar:
+  api: "https://api.semanticscholar.org/graph/v1"
+  # Returns 429 without a key. Set SEMANTIC_SCHOLAR_API_KEY in secrets/.env to enable.
+  fields: [title, abstract, year, venue, citationCount, externalIds, authors, openAccessPdf]
+
+crossref:
+  api: "https://api.crossref.org"
+  mailto: rndvcs@gmail.com
+
+datacite:
+  api: "https://api.datacite.org"
+  # Authoritative for arXiv DOIs (10.48550/*), which Crossref does not hold.
+
+unpaywall:
+  api: "https://api.unpaywall.org/v2"
+  email: rndvcs@gmail.com
+
+github:
+  api: "https://api.github.com"
+  # 60 req/h unauthenticated, 5000 with GITHUB_TOKEN.
+  search_queries:
+    - "llm inference optimization"
+    - "speculative decoding"
+    - "retrieval augmented generation"
+    - "parameter efficient fine-tuning"
+    - "llm evaluation harness"
+    - "mixture of experts llm"
+    - "long context transformer"
+    - "llm agent framework"
+    - "model quantization llm"
+    - "llm serving engine"
+  watch_repos:
+    - huggingface/transformers
+    - vllm-project/vllm
+    - sgl-project/sglang
+    - ggml-org/llama.cpp
+    - huggingface/peft
+    - huggingface/trl
+    - EleutherAI/lm-evaluation-harness
+    - pytorch/pytorch
+    - Dao-AILab/flash-attention
+    - NVIDIA/TensorRT-LLM
+    - microsoft/DeepSpeed
+    - run-llama/llama_index
+    - langchain-ai/langchain
+    - unslothai/unsloth
+    - axolotl-ai-cloud/axolotl
+    - OpenAccess-AI-Collective/axolotl
+    - InternLM/lmdeploy
+    - modelscope/ms-swift
+
+huggingface:
+  api: "https://huggingface.co/api"
+  daily_papers: "https://huggingface.co/api/daily_papers"
+  watch_orgs: [meta-llama, Qwen, deepseek-ai, mistralai, google, microsoft,
+               allenai, HuggingFaceTB, nvidia, openai, ai21labs, CohereLabs]
+
+blogs:
+  # RSS/Atom feeds. Verified reachable.
+  feeds:
+    - {name: "Lil'Log (Lilian Weng)",      url: "https://lilianweng.github.io/index.xml", weight: high}
+    - {name: "Hugging Face Blog",          url: "https://huggingface.co/blog/feed.xml",   weight: high}
+    - {name: "Google Research Blog",       url: "https://research.google/blog/rss/",      weight: high}
+    - {name: "BAIR Blog",                  url: "https://bair.berkeley.edu/blog/feed.xml", weight: medium}
+    - {name: "Stanford AI Lab",            url: "https://ai.stanford.edu/blog/feed.xml",  weight: medium}
+    - {name: "Sebastian Raschka",          url: "https://magazine.sebastianraschka.com/feed", weight: high}
+    - {name: "Eugene Yan",                 url: "https://eugeneyan.com/rss/",             weight: medium}
+    - {name: "Simon Willison",             url: "https://simonwillison.net/atom/everything/", weight: medium}
+    - {name: "Jay Alammar",                url: "https://jalammar.github.io/feed.xml",    weight: medium}
+    - {name: "Answer.AI",                  url: "https://www.answer.ai/index.xml",        weight: medium}
+    - {name: "PyTorch Blog",               url: "https://pytorch.org/feed.xml",           weight: medium}
+    - {name: "Together AI",                url: "https://www.together.ai/blog/rss.xml",   weight: low}
+    - {name: "arXiv cs.CL (Atom)",         url: "http://export.arxiv.org/rss/cs.CL",      weight: low}
+
+conferences:
+  openreview_api: "https://api2.openreview.net"
+  acl_anthology: "https://aclanthology.org"
+  acl_bib_dump: "https://aclanthology.org/anthology.bib.gz"
+  venues: [ACL, EMNLP, NAACL, EACL, COLING, NeurIPS, ICLR, ICML, TACL, CoNLL]
+
+benchmarks:
+  watch:
+    - {name: MMLU,          kind: knowledge,   repo: hendrycks/test}
+    - {name: MMLU-Pro,      kind: knowledge,   hf: TIGER-Lab/MMLU-Pro}
+    - {name: GPQA,          kind: reasoning,   repo: idavidrein/gpqa}
+    - {name: GSM8K,         kind: math,        hf: openai/gsm8k}
+    - {name: MATH,          kind: math,        repo: hendrycks/math}
+    - {name: AIME,          kind: math}
+    - {name: HumanEval,     kind: code,        repo: openai/human-eval}
+    - {name: SWE-bench,     kind: agentic,     repo: princeton-nlp/SWE-bench}
+    - {name: BIG-bench Hard,kind: reasoning,   repo: suzgunmirac/BIG-Bench-Hard}
+    - {name: HELM,          kind: holistic,    repo: stanford-crfm/helm}
+    - {name: LMSYS Arena,   kind: preference}
+    - {name: MTEB,          kind: embedding,   repo: embeddings-benchmark/mteb}
+    - {name: LongBench,     kind: long-context,repo: THUDM/LongBench}
+    - {name: RULER,         kind: long-context,repo: NVIDIA/RULER}
+    - {name: ARC-AGI,       kind: reasoning}
+    - {name: TAU-bench,     kind: agentic,     repo: sierra-research/tau-bench}
+
+community:
+  hackernews_api: "https://hn.algolia.com/api/v1"
+  hn_queries: [llm, transformer, "retrieval augmented", "fine-tuning", quantization,
+               "speculative decoding", "context window", "language model", RAG, inference]
+  hn_min_points: 30
+  github_discussion_repos:
+    - huggingface/transformers
+    - vllm-project/vllm
+    - ggml-org/llama.cpp
+    - sgl-project/sglang
+  reddit:
+    # Disabled by default: reddit.com returns 403 to script user-agents (measured).
+    enabled: false
+    subreddits: [LocalLLaMA, MachineLearning, LanguageTechnology]
+
+images:
+  wikimedia_api: "https://commons.wikimedia.org/w/api.php"
+  openverse_api: "https://api.openverse.org/v1"
+  # Both expose machine-readable licence metadata, which is why they rank first.
+
+web_search:
+  # No paid key assumed. DuckDuckGo's HTML endpoint works via POST (GET returns nothing).
+  backend: duckduckgo_html
+  fallbacks: [startpage_html]
+  # If a key is configured in secrets/.env, these take precedence automatically:
+  #   BRAVE_SEARCH_API_KEY | SERPER_API_KEY | TAVILY_API_KEY

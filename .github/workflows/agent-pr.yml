@@ -1,0 +1,100 @@
+name: Agent PR checks
+
+# Extra scrutiny for pull requests the Living Book pipeline opens itself. A human
+# reviewing an agent's change should be able to see, at a glance, that the evidence
+# trail is intact and that nothing was slipped in outside the declared scope.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  provenance:
+    name: Provenance and scope
+    if: startsWith(github.head_ref, 'agent/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: A changelog entry must accompany every agent change
+        run: |
+          set -e
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          echo "$CHANGED"
+          if ! echo "$CHANGED" | grep -q '^changelog/'; then
+            echo "::error::an agent PR must include a changelog entry recording its provenance"
+            exit 1
+          fi
+
+      - name: The commit must carry provenance trailers
+        run: |
+          set -e
+          MSG=$(git log -1 --format=%B origin/${{ github.base_ref }}..HEAD | head -80)
+          echo "$MSG"
+          MISSING=""
+          for trailer in "Research-Cluster" "Verdict" "Living-Book-Version"; do
+            echo "$MSG" | grep -q "$trailer:" || MISSING="$MISSING $trailer"
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::error::commit is missing provenance trailers:$MISSING"
+            exit 1
+          fi
+
+      - name: Only permitted paths may change
+        run: |
+          set -e
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          # An agent branch may touch the manuscript, figures and the changelog.
+          # It must never modify its own permissions, configuration or workflows —
+          # that is the one edit that would let it widen its own authority.
+          FORBIDDEN=$(echo "$CHANGED" | grep -E '^(config/|livingbook/|\.github/|secrets/|tests/)' || true)
+          if [ -n "$FORBIDDEN" ]; then
+            echo "::error::agent PR modifies files outside the manuscript:"
+            echo "$FORBIDDEN"
+            exit 1
+          fi
+
+      - name: Citation placeholders must be resolved
+        run: |
+          set -e
+          if grep -rn 'NEEDS_CITATION' manuscript/ 2>/dev/null; then
+            echo "::error::unresolved \\cite{NEEDS_CITATION} placeholder"
+            exit 1
+          fi
+          echo "no placeholders"
+
+      - name: New figures must have recorded provenance
+        run: |
+          set -e
+          NEW_IMAGES=$(git diff --name-only --diff-filter=A \
+            origin/${{ github.base_ref }}...HEAD -- 'manuscript/images/*' || true)
+          if [ -z "$NEW_IMAGES" ]; then
+            echo "no new figures"
+            exit 0
+          fi
+          FAIL=0
+          for img in $NEW_IMAGES; do
+            base=$(basename "$img")
+            if ! grep -q "$base" manuscript/images/SOURCES.md; then
+              echo "::error::$base is not recorded in images/SOURCES.md (source and licence)"
+              FAIL=1
+            fi
+          done
+          exit $FAIL
+
+      - name: Summarise the diff for the reviewer
+        run: |
+          echo "### Agent change summary" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          git diff --stat origin/${{ github.base_ref }}...HEAD >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

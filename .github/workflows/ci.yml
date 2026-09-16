@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast gate. Runs on every push and PR, including the ones agents open, and fails
+  # before a human spends attention on a change that is already broken.
+  integrity:
+    name: Manuscript integrity & system contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Agent contracts, permissions and state machine
+        run: pytest tests/test_permissions.py tests/test_state_machine.py -q
+
+      - name: LaTeX structure
+        run: pytest tests/test_latex.py -q
+
+      - name: Manuscript integrity
+        run: pytest tests/test_manuscript_integrity.py -q
+
+      - name: Secret scan
+        run: |
+          set -e
+          echo "Scanning the whole tree for credential-shaped strings..."
+          # secrets/ is gitignored; this catches anything that escaped it.
+          if grep -rIn --exclude-dir=.git --exclude-dir=.github \
+               -E '(AIzaSy[A-Za-z0-9_-]{25,}|AQ\.Ab8[A-Za-z0-9_-]{25,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{50,})' .; then
+            echo "::error::credential-shaped string found in the repository"
+            exit 1
+          fi
+          echo "clean"
+
+  # Slow gate. The authoritative check that the book still compiles.
+  build:
+    name: Build the book
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install TeX Live and Pygments
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            texlive-xetex texlive-latex-extra texlive-fonts-recommended \
+            texlive-lang-other latexmk python3-pygments fonts-liberation
+
+      - name: Provide substitutes for the Windows fonts the manuscript names
+        run: |
+          # style.tex asks for Times New Roman / Arial / Courier New, which are not
+          # redistributable on Linux. Liberation is metric-compatible, so the build
+          # verifies structure and content without needing the proprietary fonts.
+          mkdir -p ~/.fonts
+          fc-cache -f
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("manuscript/style.tex")
+          s = p.read_text(encoding="utf-8")
+          s = (s.replace("\\setmainfont{Times New Roman}", "\\setmainfont{Liberation Serif}")
+                .replace("\\setsansfont{Arial}", "\\setsansfont{Liberation Sans}")
+                .replace("\\setmonofont{Courier New}", "\\setmonofont{Liberation Mono}"))
+          p.write_text(s, encoding="utf-8")
+          print("fonts substituted for the CI build only")
+          PY
+
+      - name: Compile
+        working-directory: manuscript
+        run: |
+          set -e
+          xelatex -interaction=nonstopmode -shell-escape main.tex > /dev/null 2>&1 || true
+          bibtex main > /dev/null 2>&1 || true
+          xelatex -interaction=nonstopmode -shell-escape main.tex > /dev/null 2>&1 || true
+          xelatex -interaction=nonstopmode -shell-escape main.tex > build.log 2>&1 || true
+          if [ ! -f main.pdf ]; then
+            echo "::error::no PDF was produced"
+            tail -120 build.log
+            exit 1
+          fi
+          echo "Built $(python3 -c "import re,sys;m=re.search(r'Output written on .*\((\d+) pages',open('main.log',encoding='utf-8',errors='replace').read());print(m.group(1) if m else '?')") pages"
+
+      - name: Report unresolved references and citations
+        working-directory: manuscript
+        run: |
+          set +e
+          grep -c "undefined" main.log || true
+          echo "--- undefined references ---"
+          grep -o "Reference \`[^']*' on page [0-9]* undefined" main.log | sort -u | head -30
+          echo "--- undefined citations ---"
+          grep -o "Citation \`[^']*' on page [0-9]* undefined" main.log | sort -u | head -30
+          UNDEF=$(grep -c "undefined" main.log)
+          if [ "$UNDEF" -gt 0 ]; then
+            echo "::warning::$UNDEF undefined reference/citation warnings"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: book-pdf
+          path: |
+            manuscript/main.pdf
+            manuscript/main.log
+          retention-days: 14
+          if-no-files-found: warn

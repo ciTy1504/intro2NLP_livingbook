@@ -1,0 +1,222 @@
+# Living Book — main configuration.
+# Secrets never live here. See secrets/.env (gitignored) and config/secrets.example.env.
+
+project:
+  name: intro2NLP_livingbook
+  book_title: "GIÁO TRÌNH NLP TOÀN TẬP"
+  language: vi                     # manuscript language
+  working_language: en             # agent reasoning language
+  repo_url: https://github.com/ciTy1504/intro2NLP_livingbook
+  manuscript_dir: manuscript
+  main_tex: main.tex
+  bib_file: references.bib
+  images_dir: images
+
+llm:
+  provider: gemini
+  # Roles resolve to an ORDERED FALLBACK CHAIN, not a single model.
+  # Measured 2026-09-16: pro-tier returns 429 on every key in this pool and
+  # gemini-3.7/3.8-flash return 503, so a single-model config is unusable.
+  # Re-measure any time with:  python -m livingbook.cli llm probe
+  model_roles:
+    fast:      [gemini-3.5-flash-lite, gemini-3-flash-preview, gemini-3.1-flash-lite]
+    balanced:  [gemini-3.6-flash, gemini-3-flash-preview, gemini-3.5-flash-lite]
+    deep:      [gemini-3.6-flash, gemini-3.1-pro-preview, gemini-3-flash-preview]
+    embedding: [gemini-embedding-001, gemini-embedding-2]
+    image:     [gemini-3.1-flash-image, gemini-3-pro-image]
+  keypool:
+    path: secrets/gemini_keypool.txt   # overridable via GEMINI_KEYPOOL_PATH
+    accepted_prefixes: ["AIzaSy", "AQ.Ab8"]
+    cooldown_seconds: 90               # after 429/403 on a key
+    max_key_attempts: 8                # distinct keys tried before advancing the model chain
+    # A key is retired only after this many consecutive hard failures with no
+    # success in between. Disabling on a single 403 silently shrank the pool.
+    max_strikes: 5
+  rate_limit:
+    max_concurrency: 12                # global in-flight Gemini requests
+    min_interval_ms: 0
+    # Measured: a full book index ran at a 14% success rate, so most requests were
+    # spent re-discovering that the provider was saturated. Adaptive backoff pauses
+    # globally when the recent 429 ratio climbs, instead of rotating keys pointlessly.
+    adaptive: true
+  retry:
+    max_attempts: 4
+    base_delay_seconds: 1.5
+    max_delay_seconds: 45
+    jitter: true
+  timeouts:
+    request_seconds: 120
+    embedding_seconds: 45
+  generation:
+    temperature: 0.3
+    max_output_tokens: 8192
+    structured_max_output_tokens: 8192
+  cache:
+    enabled: true                      # makes crash-resume cheap, not just quota-saving
+    ttl_days: 30
+
+research:
+  cycle_hours: 6
+  lookback_days: 21                    # discovery window for a normal cycle
+  bootstrap_lookback_days: 120         # first ever run
+  max_items_per_source_per_cycle: 40
+  max_concurrent_source_agents: 4
+  topics:
+    - large language models
+    - transformer architecture
+    - attention mechanisms
+    - retrieval augmented generation
+    - LLM reasoning and test-time compute
+    - reinforcement learning from human feedback
+    - LLM alignment
+    - parameter efficient fine-tuning
+    - model quantization and distillation
+    - LLM serving and inference optimization
+    - speculative decoding
+    - mixture of experts
+    - long context language models
+    - LLM evaluation and benchmarks
+    - multimodal language models
+    - LLM agents and tool use
+    - tokenization
+    - LLM pretraining data
+    - scaling laws
+    - embeddings and semantic search
+  arxiv_categories: [cs.CL, cs.LG, cs.AI, cs.IR]
+  sources:
+    arxiv:          {enabled: true}
+    openalex:       {enabled: true}
+    semantic_scholar: {enabled: false, note: "429 unauthenticated; enable with SEMANTIC_SCHOLAR_API_KEY"}
+    github:         {enabled: true, min_stars: 150}
+    huggingface:    {enabled: true}
+    blogs:          {enabled: true}
+    conferences:    {enabled: true}
+    benchmarks:     {enabled: true}
+    hackernews:     {enabled: true}
+    reddit:         {enabled: false, note: "403 for script user-agents (measured 2026-09-16)"}
+
+synthesis:
+  dedupe_cosine_threshold: 0.86
+  cluster_cosine_threshold: 0.74
+  min_items_per_cluster: 1
+  max_clusters_per_cycle: 12
+
+verdict:
+  # No numeric score decides a change. These are floors that must be cleared
+  # BEFORE an evidence-backed rationale is even considered.
+  min_evidence_for_book_change:
+    scientific: 1                      # at least one peer-reviewed / preprint source
+    total: 2                           # at least two independent sources overall
+  maturity_required_for:
+    ADD_NEW_SECTION:          [consolidating, mature]
+    REWRITE_SECTION:          [consolidating, mature]
+    REPLACE_OBSOLETE_CONTENT: [mature]
+    EXTEND_SECTION:           [emerging, consolidating, mature]
+    ADD_FOOTNOTE:             [emerging, consolidating, mature]
+    ADD_REFERENCE:            [emerging, consolidating, mature]
+  monitor_reevaluation_days: 7
+  monitor_expiry_days: 180             # MONITOR with no new evidence -> DISMISSED
+
+writer:
+  style_guide: config/style_guide.md
+  max_patch_lines: 400                 # a single verdict may not rewrite the book
+  max_files_per_patch: 3
+  prefer_minimal_patch: true
+  mark_new_content_with_newtag: true   # the manuscript's existing \newtag convention
+
+citation:
+  min_candidates_per_gap: 3
+  require_primary_source_for: [numerical, benchmark, sota, causal]
+  reject_on_laundering: true
+  doi_resolvers:
+    "10.48550": datacite               # arXiv DOIs — Crossref 404s on these
+    default: crossref
+
+visual:
+  enabled: true
+  max_refine_rounds: 2
+  max_candidates_per_requirement: 8
+  allow_generation: true
+  generation_backend: matplotlib       # matplotlib | gemini_image
+  min_image_width: 700
+  acceptable_licenses:
+    - cc0
+    - pd
+    - publicdomain
+    - cc-by
+    - cc-by-sa
+    - cc-by-2.0
+    - cc-by-3.0
+    - cc-by-4.0
+    - cc-by-sa-3.0
+    - cc-by-sa-4.0
+  require_attribution: true
+
+qa:
+  run_build: true
+  build_timeout_seconds: 900
+  fail_on_warnings: false
+  global_qa_cron_days: 7
+  max_revisions: 2                     # backward edges before escalating to human
+
+git:
+  enabled: true
+  remote_name: origin
+  remote_url: https://github.com/ciTy1504/intro2NLP_livingbook
+  # Hard guard: a push whose remote does not contain this string aborts.
+  expected_remote_substring: intro2NLP_livingbook
+  base_branch: main
+  branch_format: "agent/research/{date}-{topic}"
+  commit_author_name: livingbook-agent
+  commit_author_email: bong1552004@gmail.com
+  create_pull_request: true
+  auto_merge: false                    # manual | set true for auto_after_qa
+  push_enabled: true                   # false = commit locally only (dry run)
+
+email:
+  enabled: true
+  provider: gmail_smtp
+  smtp_host: smtp.gmail.com
+  smtp_port: 587
+  from_name: "Living Book Agent"
+  recipients: []                       # filled from EMAIL_RECIPIENTS in secrets/.env
+  send_only_on_manuscript_change: true # MONITOR/IGNORE verdicts never email
+  digest:
+    enabled: false                     # opt-in "discovered but not integrated" digest
+    cron_days: 7
+
+approval:
+  require_human_approval_for: [REWRITE_SECTION, REPLACE_OBSOLETE_CONTENT]
+  review_dir: reviews
+  auto_approve_after_hours: 0          # 0 = wait indefinitely for a human
+
+scheduler:
+  jobs:
+    discovery:      {every_hours: 6}
+    synthesis:      {every_hours: 12}
+    verdict:        {every_hours: 12}
+    pipeline_tick:  {every_minutes: 15}
+    monitor_sweep:  {every_days: 7}
+    global_qa:      {every_days: 7}
+    kb_reindex:     {every_hours: 24}
+
+observability:
+  log_dir: logs
+  log_level: INFO
+  console: true
+  jsonl: true
+  redact_patterns: ["AIzaSy[A-Za-z0-9_\\-]+", "AQ\\.Ab8[A-Za-z0-9_\\-]+", "ghp_[A-Za-z0-9]+", "github_pat_[A-Za-z0-9_]+"]
+
+paths:
+  state_db: state/livingbook.db
+  artifacts: state/artifacts
+  research_inbox: research/inbox
+  research_processed: research/processed
+  research_monitoring: research/monitoring
+  research_rejected: research/rejected
+  figures_requirements: figures/requirements
+  figures_candidates: figures/candidates
+  figures_approved: figures/approved
+  figures_generated: figures/generated
+  changelog: changelog
+  reviews: reviews

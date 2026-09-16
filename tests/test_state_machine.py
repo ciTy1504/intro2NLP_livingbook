@@ -1,0 +1,214 @@
+"""State machine, evidence-gating and provenance tests.
+
+The evidence tests are the important ones: they encode the rule that a single
+unreplicated paper must not change the book, and that a forum thread cannot become
+scientific evidence. Those are the guarantees that make the pipeline trustworthy, and
+they should fail loudly if someone relaxes them.
+"""
+
+from __future__ import annotations
+
+import sys
+import tempfile
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from livingbook.research.models import (  # noqa: E402
+    Evidence,
+    EvidenceKind,
+    EvidenceStrength,
+    Maturity,
+    ResearchCluster,
+    SourceRef,
+)
+from livingbook.skills.research.synthesis import compute_maturity  # noqa: E402
+from livingbook.state.machine import (  # noqa: E402
+    BACKWARD_EDGES,
+    FORWARD,
+    TERMINAL,
+    TRANSITIONS,
+    IllegalTransition,
+    State,
+    StateMachine,
+)
+from livingbook.state.store import Store  # noqa: E402
+
+
+@pytest.fixture()
+def machine():
+    with tempfile.TemporaryDirectory() as tmp:
+        store = Store(Path(tmp) / "test.db")
+        yield StateMachine(store)
+        store.close()
+
+
+# ── the state graph itself ────────────────────────────────────────────────
+
+
+def test_forward_path_is_fully_connected():
+    for a, b in zip(FORWARD, FORWARD[1:]):
+        assert b in TRANSITIONS[a], f"{a.value} -> {b.value} is not a legal transition"
+
+
+def test_every_state_can_fail_or_escalate():
+    for state, targets in TRANSITIONS.items():
+        if state in TERMINAL or state == State.NEEDS_HUMAN:
+            continue
+        assert State.FAILED in targets, f"{state.value} cannot fail"
+        assert State.NEEDS_HUMAN in targets, f"{state.value} cannot escalate"
+
+
+def test_terminal_states_are_terminal():
+    assert not TRANSITIONS[State.COMPLETED]
+    assert not TRANSITIONS[State.REJECTED]
+
+
+def test_backward_edges_are_legal_transitions():
+    for frm, to in BACKWARD_EDGES:
+        assert to in TRANSITIONS[frm], f"backward edge {frm.value}->{to.value} is illegal"
+
+
+# ── behaviour ─────────────────────────────────────────────────────────────
+
+
+def test_illegal_transition_raises(machine):
+    pipe = machine.create(cluster_id=None, state=State.SYNTHESIZED)
+    with pytest.raises(IllegalTransition):
+        machine.transition(pipe, State.GIT_PUBLISH)
+
+
+def test_transition_is_recorded(machine):
+    pipe = machine.create(state=State.SYNTHESIZED)
+    pipe = machine.transition(pipe, State.VERDICT_PENDING, note="test")
+    history = machine.history(pipe.id)
+    assert [h["to_state"] for h in history] == ["SYNTHESIZED", "VERDICT_PENDING"]
+
+
+def test_state_data_accumulates(machine):
+    pipe = machine.create(state=State.SYNTHESIZED)
+    pipe = machine.transition(pipe, State.VERDICT_PENDING, data={"a": 1})
+    pipe = machine.transition(pipe, State.VERDICT_APPROVED, data={"b": 2})
+    assert pipe.data["a"] == 1 and pipe.data["b"] == 2
+
+
+def test_revision_limit_escalates_to_human(machine):
+    """Bounded backward edges: a patch that cannot pass QA must reach a person."""
+    pipe = machine.create(state=State.SYNTHESIZED)
+    for state in (State.VERDICT_PENDING, State.VERDICT_APPROVED, State.DRAFTED):
+        pipe = machine.transition(pipe, state)
+
+    machine.max_revisions = 2
+    for _ in range(machine.max_revisions):
+        pipe = machine.transition(pipe, State.TECHNICAL_VERIFY)
+        pipe = machine.transition(pipe, State.DRAFTED, note="defect found")
+    assert pipe.revisions == machine.max_revisions
+
+    pipe = machine.transition(pipe, State.TECHNICAL_VERIFY)
+    pipe = machine.transition(pipe, State.DRAFTED, note="defect again")
+    assert pipe.state == State.NEEDS_HUMAN, "exceeding max_revisions must escalate"
+
+
+def test_active_excludes_parked_and_terminal(machine):
+    a = machine.create(state=State.SYNTHESIZED)
+    b = machine.create(state=State.SYNTHESIZED)
+    machine.transition(b, State.VERDICT_PENDING)
+    machine.transition(machine.get(b.id), State.MONITORING)
+    active_ids = {p.id for p in machine.active()}
+    assert a.id in active_ids
+    assert b.id not in active_ids, "MONITORING pipelines must not be ticked"
+
+
+# ── evidence discipline ───────────────────────────────────────────────────
+
+
+def _ref(source: str, n: int = 0) -> SourceRef:
+    return SourceRef(source=source, source_id=f"{source}-{n}", title=f"{source} item {n}")
+
+
+def test_community_source_cannot_emit_scientific_evidence():
+    """A forum thread is a signal, whatever the model decides to call it."""
+    evidence = Evidence.for_source(
+        "hackernews", EvidenceKind.SCIENTIFIC, "X is 3x faster",
+        strength=EvidenceStrength.STRONG, provenance=[_ref("hackernews")])
+    assert evidence.kind != EvidenceKind.SCIENTIFIC
+    assert evidence.strength == EvidenceStrength.WEAK
+
+
+def test_github_cannot_emit_scientific_evidence():
+    evidence = Evidence.for_source(
+        "github", EvidenceKind.SCIENTIFIC, "beats the baseline",
+        provenance=[_ref("github")])
+    assert evidence.kind in (EvidenceKind.PRACTICAL, EvidenceKind.ADOPTION)
+
+
+def test_arxiv_may_emit_scientific_evidence():
+    evidence = Evidence.for_source(
+        "arxiv", EvidenceKind.SCIENTIFIC, "measured 2x speedup",
+        provenance=[_ref("arxiv")])
+    assert evidence.kind == EvidenceKind.SCIENTIFIC
+
+
+def test_evidence_requires_provenance():
+    with pytest.raises(ValueError):
+        Evidence(kind=EvidenceKind.SCIENTIFIC, statement="unattributed", provenance=[])
+
+
+# ── maturity ──────────────────────────────────────────────────────────────
+
+
+def test_single_paper_is_speculative():
+    """The brief's rule: one new paper does not mean the book changes."""
+    evidence = [Evidence.for_source("arxiv", EvidenceKind.SCIENTIFIC, "result",
+                                    provenance=[_ref("arxiv")])]
+    assert compute_maturity(evidence, [{}]) == Maturity.SPECULATIVE
+
+
+def test_paper_plus_implementation_is_emerging():
+    evidence = [
+        Evidence.for_source("arxiv", EvidenceKind.SCIENTIFIC, "r", provenance=[_ref("arxiv")]),
+        Evidence.for_source("github", EvidenceKind.PRACTICAL, "impl",
+                            provenance=[_ref("github")]),
+    ]
+    assert compute_maturity(evidence, [{}, {}]) == Maturity.EMERGING
+
+
+def test_replication_and_adoption_reaches_consolidating():
+    evidence = [
+        Evidence.for_source("arxiv", EvidenceKind.SCIENTIFIC, "r", provenance=[_ref("arxiv")]),
+        Evidence.for_source("openalex", EvidenceKind.INDEPENDENT_VERIFICATION, "repro",
+                            provenance=[_ref("openalex")]),
+        Evidence.for_source("github", EvidenceKind.ADOPTION, "widely used",
+                            provenance=[_ref("github")]),
+    ]
+    assert compute_maturity(evidence, [{}] * 3) == Maturity.CONSOLIDATING
+
+
+def test_community_only_never_exceeds_speculative():
+    """No amount of discussion makes something a settled result."""
+    evidence = [
+        Evidence.for_source("hackernews", EvidenceKind.COMMUNITY, f"thread {i}",
+                            provenance=[_ref("hackernews", i)])
+        for i in range(12)
+    ]
+    assert compute_maturity(evidence, [{}] * 12) == Maturity.SPECULATIVE
+
+
+# ── cluster accounting ────────────────────────────────────────────────────
+
+
+def test_independent_source_count_ignores_duplicates_within_a_source():
+    cluster = ResearchCluster(
+        id="c1", title="t",
+        provenance=[_ref("arxiv", 0), _ref("arxiv", 1), _ref("arxiv", 2)])
+    assert cluster.independent_source_count() == 1, (
+        "three arXiv papers are one channel, not three")
+
+
+def test_independent_source_count_across_sources():
+    cluster = ResearchCluster(
+        id="c1", title="t",
+        provenance=[_ref("arxiv"), _ref("github"), _ref("openalex")])
+    assert cluster.independent_source_count() == 3

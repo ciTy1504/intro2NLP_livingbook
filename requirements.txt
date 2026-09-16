@@ -1,0 +1,23 @@
+# Runtime dependencies for the Living Book system.
+# Verified against Python 3.13 on 2026-09-16.
+
+httpx>=0.28            # async HTTP for every external source and the Gemini API
+pydantic>=2.10         # agent contracts; a malformed output fails the step, not the book
+PyYAML>=6.0            # configuration
+python-dotenv>=1.0     # secrets loading
+feedparser>=6.0        # research blog RSS/Atom
+beautifulsoup4>=4.12   # HTML extraction
+lxml>=5.0              # faster HTML parsing
+matplotlib>=3.9        # original diagram generation
+numpy>=1.26            # matplotlib dependency, embedding maths
+networkx>=3.3          # knowledge-graph algorithms
+Pygments>=2.18         # required by LaTeX `minted`
+Pillow>=10.0           # image inspection and normalisation
+PyMuPDF>=1.24          # reading papers, so claims are verified against the text
+rich>=13.0             # console output
+Jinja2>=3.1            # report templating
+tenacity>=8.2          # retry helpers
+bibtexparser>=1.4      # BibTeX cross-checking
+
+# Development
+pytest>=8.0

@@ -1,0 +1,123 @@
+% !TEX root = ../main.tex
+% File: part1/chapters_part6/chap6_1.tex
+% Nội dung cho Chương 6, Phần 1: Giới thiệu và Kiến trúc RAG Cơ bản
+
+\section{Kiến trúc RAG Cơ bản}
+\label{sec:rag_intro}
+
+\begin{tcolorbox}[
+	title=Trực giác cốt lõi của RAG,
+	colback=yellow!10!white, colframe=yellow!50!black, fonttitle=\bfseries
+	]
+	Thay vì buộc LLM phải “nhớ” mọi thứ, hãy cho nó làm một “bài kiểm tra mở sách” (open-book exam). Khi nhận được một câu hỏi, thay vì trả lời ngay lập tức từ trí nhớ, hệ thống RAG trước hết sẽ \textbf{tìm kiếm (retrieve)} các thông tin liên quan nhất từ một cơ sở tri thức bên ngoài (ví dụ: tài liệu công ty, Wikipedia, các file PDF). Sau đó, nó sẽ cung cấp các thông tin đã tìm được này, cùng với câu hỏi gốc, cho LLM để \textbf{sinh ra (generate)} một câu trả lời dựa trên các bằng chứng đó.
+\end{tcolorbox}
+
+RAG biến LLM từ một “nhà hiền triết” biết tuốt (nhưng đôi khi đãng trí và bịa chuyện) thành một “nhà nghiên cứu” tài ba, có khả năng tìm kiếm, tổng hợp và trả lời dựa trên các nguồn thông tin xác thực.
+
+\subsection{Tại sao và Khi nào chúng ta cần RAG?}
+\label{ssec:why_rag}
+Trước khi đi sâu vào kỹ thuật, điều quan trọng là phải hiểu rõ các vấn đề mà RAG giải quyết và khi nào nó là công cụ phù hợp.
+
+\paragraph{Các vấn đề cố hữu của LLM}
+Các mô hình ngôn ngữ lớn, dù mạnh mẽ đến đâu, vẫn đối mặt với ba thách thức lớn:
+\begin{itemize}
+	\item \textbf{Bịa đặt thông tin (Hallucination):} LLM có xu hướng tự “sáng tạo” ra các thông tin không có thật một cách rất tự tin, gây ra rủi ro nghiêm trọng trong các ứng dụng đòi hỏi tính chính xác.
+	\item \textbf{Giới hạn tri thức (Knowledge Cutoff):} Tri thức của LLM bị đóng băng tại thời điểm nó được huấn luyện. Nó không biết về các sự kiện, dữ liệu hoặc thông tin mới xuất hiện sau ngày đó.
+	\item \textbf{Thiếu tính kiểm chứng (Lack of Verifiability):} Khi LLM đưa ra một câu trả lời, rất khó để truy ngược lại nguồn thông tin mà nó đã sử dụng, khiến việc xác thực trở nên bất khả thi.
+\end{itemize}
+RAG được thiết kế để giải quyết trực tiếp cả ba vấn đề này bằng cách cung cấp cho LLM các bằng chứng cập nhật và có thể kiểm chứng tại thời điểm trả lời.
+
+\paragraph{Khi nào nên sử dụng RAG?}
+\begin{itemize}
+	\item Khi ứng dụng của bạn cần truy cập vào \textbf{kho tri thức riêng tư, lớn, hoặc thay đổi liên tục} (tài liệu nội bộ, cơ sở dữ liệu sản phẩm, văn bản pháp luật mới). Việc fine-tune lại LLM liên tục là không khả thi và tốn kém.
+	\item Khi \textbf{tính chính xác và khả năng trích dẫn nguồn} là yêu cầu bắt buộc (trợ lý pháp lý, tư vấn y tế, tra cứu thông tin tài chính).
+	\item Khi mục tiêu chính là \textbf{giảm thiểu rủi ro bịa đặt thông tin} và đảm bảo câu trả lời được neo vào các nguồn xác thực.
+\end{itemize}
+
+\subsection{Kiến trúc RAG Cơ bản (The Naive RAG Pipeline)}
+\label{ssec:naive_rag}
+Một hệ thống RAG cơ bản, thường được gọi là “Naive” hay “Vanilla” RAG, bao gồm hai giai đoạn chính: \textbf{Lập chỉ mục (Indexing)} và \textbf{Truy vấn (Querying)}. Đây là nền tảng để hiểu tất cả các kỹ thuật nâng cao sau này.
+
+\paragraph{Giai đoạn 1: Lập chỉ mục (Offline)}
+Giai đoạn này được thực hiện một lần hoặc định kỳ để chuẩn bị cơ sở tri thức. Nó giống như việc chúng ta sắp xếp và tạo mục lục cho một thư viện.
+\begin{enumerate}
+	\item \textbf{Tải Dữ liệu (Load):} Tải các tài liệu từ nguồn (PDF, TXT, HTML, v.v.).
+	\item \textbf{Phân mảnh (Chunk/Split):} Chia các tài liệu dài thành các đoạn nhỏ hơn, gọi là các “chunk”. Trong kiến trúc cơ bản, đây thường là \textit{fixed-size chunking} (chia thành các đoạn có kích thước cố định).
+	\item \textbf{Nhúng (Embed):} Sử dụng một mô hình nhúng (embedding model, ví dụ: các bi-encoder từ `sentence-transformers`) để chuyển mỗi chunk thành một vector số (embedding). Vector này nắm bắt ngữ nghĩa của chunk đó.
+	\item \textbf{Lưu trữ (Store):} Lưu trữ các chunk và các vector embedding tương ứng của chúng vào một \textbf{Cơ sở dữ liệu Vector} (Vector Database) như FAISS, ChromaDB, hoặc pgvector.
+\end{enumerate}
+
+\paragraph{Giai đoạn 2: Truy vấn (Online)}
+Giai đoạn này xảy ra mỗi khi người dùng đặt câu hỏi.
+\begin{enumerate}
+	\item \textbf{Nhúng Câu hỏi (Query Embedding):} Câu hỏi của người dùng được nhúng thành một vector truy vấn, sử dụng \textbf{cùng một embedding model} đã dùng ở giai đoạn lập chỉ mục.
+	\item \textbf{Tìm kiếm (Retrieve):} Vector truy vấn được sử dụng để thực hiện một \textit{tìm kiếm tương đồng (similarity search)} trong Vector Database, nhằm tìm ra $k$ chunk có vector gần nhất (tương đồng nhất về mặt ngữ nghĩa).
+	\item \textbf{Tăng cường Prompt (Augment):} Các chunk đã tìm được được ghép vào prompt cùng với câu hỏi gốc của người dùng.
+	\begin{tcolorbox}[colback=gray!5!white, colframe=gray!50!black, sharp corners]
+		\textbf{Ngữ cảnh được cung cấp:} \\
+		\textit{[Nội dung của chunk 1...]} \\
+		\textit{[Nội dung của chunk 2...]} \\
+		\textit{[...]} \\
+		\textbf{Dựa vào ngữ cảnh trên, hãy trả lời câu hỏi sau:} \\
+		\textit{[Câu hỏi gốc của người dùng]} \\
+		\textbf{Trả lời:}
+	\end{tcolorbox}
+	\item \textbf{Sinh Câu trả lời (Generate):} Prompt đã được tăng cường này được gửi đến một LLM. LLM sẽ tổng hợp thông tin từ ngữ cảnh được cung cấp để tạo ra câu trả lời cuối cùng.
+\end{enumerate}
+
+\begin{center}
+	\includegraphics[width=1.0\textwidth]{rag_pipeline_diagram.png}
+	\captionof{figure}{Sơ đồ kiến trúc của một hệ thống RAG, bao gồm giai đoạn Lập chỉ mục (bên trên) và giai đoạn Truy vấn (bên dưới).}
+	\label{fig:rag_pipeline_diagram}
+\end{center}
+
+\subsection{Bài học từ các Công cụ Tìm kiếm: Kiến trúc Phân tầng của Google}
+\label{ssec:lesson_from_google}
+Để hiểu tại sao các hệ thống RAG hiện đại được thiết kế theo một cách cụ thể, sẽ rất hữu ích khi nhìn vào “người khổng lồ” trong lĩnh vực tìm kiếm: Google. Kiến trúc của Google Search là một ví dụ điển hình về một hệ thống retrieval đa tầng (multi-stage), nơi mỗi tầng sẽ lọc và tinh chỉnh kết quả, cân bằng giữa tốc độ và độ chính xác.
+
+\paragraph{Kiến trúc Phân tầng (A Tiered Architecture)}
+Một truy vấn trên Google không chỉ đơn giản là “tìm và trả về”. Nó đi qua một “phễu” tinh vi gồm nhiều giai đoạn:
+\begin{enumerate}
+	\item \textbf{Crawl \& Indexing (Thu thập và Lập chỉ mục):} 
+	Trước khi bất kỳ truy vấn nào được xử lý, Googlebot liên tục \emph{crawl} web, tải về nội dung và phân tích cấu trúc trang. Dữ liệu sau đó được chuẩn hoá và lưu trong nhiều loại chỉ mục:
+	\begin{itemize}
+		\item \emph{Inverted Index (Sparse Index):} ánh xạ từ khoá $\rightarrow$ danh sách tài liệu chứa từ đó.
+		\item \emph{Dense Index (Vector Index):} biểu diễn văn bản dưới dạng embedding để phục vụ tìm kiếm ngữ nghĩa.
+		\item Ngoài ra, các siêu dữ liệu (metadata), đồ thị liên kết (PageRank), và thông tin đa phương tiện (hình ảnh, video) cũng được lưu trữ song song.
+	\end{itemize}
+	
+	\item \textbf{Query Understanding (Hiểu Truy vấn):} 
+	Khi người dùng nhập một truy vấn, Google áp dụng các mô hình ngôn ngữ tiên tiến (BERT, MUM, T5) để phân tích ý định và ngữ nghĩa. Các bước xử lý điển hình gồm:
+	\begin{itemize}
+		\item Chuẩn hoá, sửa lỗi chính tả, mở rộng từ đồng nghĩa.
+		\item Nhận diện thực thể (entity recognition) và giải quyết nhập nhằng (disambiguation).
+		\item Viết lại truy vấn (query rewriting) và cá nhân hoá dựa trên ngôn ngữ, vị trí, lịch sử tìm kiếm.
+	\end{itemize}
+	
+	\item \textbf{Candidate Generation (Tạo Ứng viên - Nhanh và Rộng):}
+	\begin{itemize}
+		\item \textbf{Mục tiêu:} Từ hàng tỷ tài liệu, nhanh chóng lọc ra một tập hợp lớn (10,000--100,000) ứng viên tiềm năng.
+		\item \textbf{Công nghệ:} Kết hợp \emph{Sparse Retrieval} (BM25/TF-IDF) với \emph{Dense Retrieval} (bi-encoders + ANN search). Giai đoạn này ưu tiên \textbf{Recall} --- đảm bảo không bỏ sót kết quả quan trọng.
+	\end{itemize}
+	
+	\item \textbf{Initial Ranking (Xếp hạng ban đầu):}
+	\begin{itemize}
+		\item \textbf{Mục tiêu:} Thu hẹp tập ứng viên từ hàng chục nghìn xuống còn vài nghìn tài liệu có triển vọng.
+		\item \textbf{Công nghệ:} Sử dụng \emph{Learning-to-Rank models} (boosted trees, shallow neural nets) để kết hợp nhiều tín hiệu: điểm BM25, PageRank, độ mới (freshness), anchor text, độ phổ biến của tài liệu. Đây là lớp lọc trung gian quan trọng trước khi áp dụng mô hình ngôn ngữ nặng nề.
+	\end{itemize}
+	
+	\item \textbf{Neural Re-ranking \& Final Touches (Xếp hạng lại bằng mô hình Neural và Tinh chỉnh cuối cùng):}
+	\begin{itemize}
+		\item \textbf{Mục tiêu:} Đạt độ chính xác cao nhất trong top kết quả hiển thị (thường là vài chục link).
+		\item \textbf{Công nghệ:} Các \emph{Cross-Encoders} hoặc mô hình seq2seq (như T5, BERT, MUM) được áp dụng cho vài trăm ứng viên. Các mô hình này đánh giá trực tiếp cặp \emph{(truy vấn, tài liệu)} nên rất chính xác, dù tốn kém về tính toán.
+		\item \textbf{Tinh chỉnh cuối cùng:} Diversification (đa dạng hoá kết quả), lọc spam, tích hợp Knowledge Graph, snippet, và kết hợp các nguồn media (tin tức, hình ảnh, video).
+		\item Ngoài ra, các tín hiệu hành vi người dùng (CTR, dwell time) được khai thác để điều chỉnh thứ hạng theo thời gian.
+	\end{itemize}
+\end{enumerate}
+
+\begin{tcolorbox}[
+	title=Bài học cốt lõi cho RAG từ Google,
+	colback=green!5!white, colframe=green!60!black, fonttitle=\bfseries
+	]
+	Xây dựng một hệ thống retrieval mạnh mẽ không phải là việc chọn một thuật toán duy nhất. Đó là việc xây dựng một \textbf{pipeline đa tầng}. Chúng ta chấp nhận sử dụng các phương pháp “đủ tốt” và nhanh ở giai đoạn đầu để lọc số lượng lớn, sau đó mới đầu tư tài nguyên tính toán vào các phương pháp chính xác cao cho một số lượng nhỏ các ứng viên hứa hẹn nhất. Triết lý “lọc rộng rồi tinh chỉnh sâu” này chính là nền tảng cho các hệ thống RAG hiện đại.
+\end{tcolorbox}

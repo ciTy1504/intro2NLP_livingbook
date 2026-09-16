@@ -1,0 +1,363 @@
+# Agent contracts: capabilities, tool allowlists, constraints, failure policy.
+# Enforced at call time by AgentContext. An agent may only use a tool that is
+# BOTH in its `tools` list AND whose capabilities are a subset of its `capabilities`.
+#
+# Capabilities: SEARCH FETCH SCHOLARLY FS_READ FS_WRITE KB_READ KB_WRITE LLM BUILD GIT EMAIL
+# Failure policies: retry | degrade | fail_pipeline | escalate_to_human
+
+defaults:
+  failure_policy: retry
+  max_retries: 3
+  model_role: balanced
+  timeout_seconds: 600
+
+agents:
+
+  # ───────────────────────────── research ─────────────────────────────
+  arxiv_agent:
+    objective: >-
+      Discover and analyse new arXiv papers relevant to the book's topics, extracting
+      methods, claims, benchmark results, related work and stated limitations.
+    capabilities: [SEARCH, FETCH, SCHOLARLY, KB_READ, KB_WRITE, LLM]
+    skills: [research_discovery, paper_analysis, claim_extraction]
+    tools: [search_arxiv, fetch_arxiv_paper, download_pdf, parse_pdf, fetch_url,
+            kb_query, kb_upsert, gemini_structured_output, gemini_generate]
+    evidence_kinds: [scientific, author_claim]
+    model_role: balanced
+    failure_policy: degrade
+
+  scholarly_agent:
+    objective: >-
+      Establish scholarly context for a work: venue, citation counts, influence,
+      related literature and whether independent work corroborates it.
+    capabilities: [SEARCH, FETCH, SCHOLARLY, KB_READ, KB_WRITE, LLM]
+    skills: [research_discovery, paper_analysis]
+    tools: [search_openalex, fetch_openalex_work, search_semantic_scholar,
+            search_crossref, verify_doi, resolve_paper_identity, fetch_url,
+            kb_query, kb_upsert, gemini_structured_output]
+    evidence_kinds: [scientific, independent_verification]
+    model_role: balanced
+    failure_policy: degrade
+
+  github_research_agent:
+    objective: >-
+      Track implementations, releases, maintenance activity and adoption signals for
+      techniques relevant to the book, and link repositories back to their papers.
+    capabilities: [SEARCH, FETCH, KB_READ, KB_WRITE, LLM]
+    skills: [research_discovery, repo_analysis]
+    tools: [search_github, fetch_github_repo, fetch_github_activity, fetch_url,
+            kb_query, kb_upsert, gemini_structured_output]
+    evidence_kinds: [practical, adoption]
+    model_role: fast
+    failure_policy: degrade
+
+  huggingface_agent:
+    objective: >-
+      Track model/dataset releases and ecosystem uptake on Hugging Face as an
+      adoption signal, and surface daily-paper highlights.
+    capabilities: [SEARCH, FETCH, KB_READ, KB_WRITE, LLM]
+    skills: [research_discovery, repo_analysis]
+    tools: [search_huggingface, fetch_hf_model, search_hf_papers, fetch_url,
+            kb_query, kb_upsert, gemini_structured_output]
+    evidence_kinds: [practical, adoption]
+    model_role: fast
+    failure_policy: degrade
+
+  research_blog_agent:
+    objective: >-
+      Follow curated research blogs and lab announcements for explanations and
+      releases that clarify or contextualise primary literature.
+    capabilities: [SEARCH, FETCH, KB_READ, KB_WRITE, LLM]
+    skills: [research_discovery, paper_analysis]
+    tools: [fetch_rss, fetch_url, web_search, kb_query, kb_upsert, gemini_structured_output]
+    evidence_kinds: [practical, author_claim]
+    model_role: fast
+    failure_policy: degrade
+
+  conference_agent:
+    objective: >-
+      Track peer-reviewed acceptance and reviewer critique via OpenReview and the
+      ACL Anthology; peer review is a stronger signal than a preprint alone.
+    capabilities: [SEARCH, FETCH, SCHOLARLY, KB_READ, KB_WRITE, LLM]
+    skills: [research_discovery, paper_analysis, claim_extraction]
+    tools: [search_openreview, search_acl_anthology, fetch_url, download_pdf,
+            parse_pdf, kb_query, kb_upsert, gemini_structured_output]
+    evidence_kinds: [scientific, independent_verification]
+    model_role: balanced
+    failure_policy: degrade
+
+  benchmark_agent:
+    objective: >-
+      Track benchmarks and leaderboards: what exists, what is saturated, what numbers
+      are actually reported, and whether a claimed SOTA is comparable.
+    capabilities: [SEARCH, FETCH, SCHOLARLY, KB_READ, KB_WRITE, LLM]
+    skills: [research_discovery, repo_analysis]
+    tools: [search_github, fetch_github_repo, search_huggingface, search_openalex,
+            fetch_url, kb_query, kb_upsert, gemini_structured_output]
+    evidence_kinds: [scientific, practical]
+    model_role: balanced
+    failure_policy: degrade
+
+  community_agent:
+    objective: >-
+      Surface recurring practitioner discussions, emerging terminology, practical pain
+      points and disagreement. Produces signal, never scientific evidence.
+    capabilities: [SEARCH, FETCH, KB_READ, KB_WRITE, LLM]
+    skills: [research_discovery, community_signal_analysis]
+    tools: [search_hackernews, search_github_discussions, search_reddit, fetch_url,
+            kb_query, kb_upsert, gemini_structured_output]
+    # Schema-level constraint: this agent cannot emit scientific evidence.
+    evidence_kinds: [community, anecdotal_practical]
+    model_role: fast
+    failure_policy: degrade
+
+  research_synthesizer:
+    objective: >-
+      Deduplicate, cluster and cross-link everything the source agents collected;
+      compare evidence, detect contradictions and assess maturity. Reasons only over
+      already-collected material.
+    capabilities: [KB_READ, KB_WRITE, LLM]        # deliberately no SEARCH, no FETCH
+    skills: [research_synthesis]
+    tools: [kb_query, kb_upsert, gemini_embedding, gemini_structured_output]
+    model_role: deep
+    failure_policy: retry
+
+  # ───────────────────────────── verdict ─────────────────────────────
+  book_verdict_agent:
+    objective: >-
+      Decide whether and how a research cluster should change the book, with an
+      evidence-backed rationale naming the exact affected content.
+    capabilities: [FS_READ, KB_READ, KB_WRITE, LLM]
+    skills: [book_retrieval, book_placement]
+    tools: [read_file, kb_query, kb_retrieve_context, kb_upsert,
+            gemini_embedding, gemini_structured_output]
+    model_role: deep
+    failure_policy: retry
+    verification_requirements: [evidence_floor, maturity_gate]
+
+  # ───────────────────────────── writer ─────────────────────────────
+  writer_agent:
+    objective: >-
+      Produce the minimal coherent LaTeX patch that realises an approved verdict, in
+      the manuscript's existing Vietnamese voice and conventions.
+    capabilities: [FS_READ, FS_WRITE, KB_READ, LLM]
+    skills: [book_retrieval, chapter_editing, visual_need_detection]
+    tools: [read_file, write_file, patch_file, list_files, search_repository,
+            kb_query, kb_retrieve_context, gemini_generate, gemini_structured_output]
+    constraints:
+      write_paths: ["manuscript/**"]           # and only files named by the verdict
+      max_patch_lines: 400
+      max_files: 3
+      # manuscript/images/ is excluded explicitly: "manuscript/**" matches it, and
+      # the AssetManager must remain the sole writer of figures so the licence gate
+      # cannot be bypassed.
+      forbidden_paths: ["manuscript/references.bib", "manuscript/style.tex",
+                        "manuscript/main.tex", "manuscript/images/**"]
+    model_role: deep
+    failure_policy: retry
+    verification_requirements: [technical_verify, citation_verify, editorial_verify, book_qa]
+
+  # ───────────────────────────── citation ─────────────────────────────
+  citation_auditor:
+    objective: >-
+      Find every claim in new or affected content that needs evidence it does not have,
+      classifying why and what kind of source would settle it.
+    capabilities: [FS_READ, KB_READ, KB_WRITE, LLM]
+    skills: [book_retrieval, citation_audit]
+    tools: [read_file, kb_query, kb_retrieve_context, kb_upsert, gemini_structured_output]
+    model_role: deep
+    failure_policy: retry
+
+  citation_finder:
+    objective: >-
+      Find sources that support the exact claim, preferring primary and original
+      sources over anything that merely restates them.
+    capabilities: [SEARCH, FETCH, SCHOLARLY, KB_READ, LLM]
+    skills: [citation_search]
+    tools: [search_openalex, search_arxiv, search_crossref, search_semantic_scholar,
+            search_acl_anthology, web_search, fetch_url, kb_query, gemini_structured_output]
+    model_role: balanced
+    failure_policy: retry
+
+  citation_verifier:
+    objective: >-
+      Verify a candidate citation against the claim it is meant to support, including
+      detecting citation laundering, and reject anything that does not hold up.
+    capabilities: [SEARCH, FETCH, SCHOLARLY, KB_READ, KB_WRITE, LLM]
+    skills: [citation_verification]
+    tools: [fetch_openalex_work, fetch_arxiv_paper, download_pdf, parse_pdf, verify_doi,
+            resolve_paper_identity, fetch_url, kb_query, kb_upsert, gemini_structured_output]
+    model_role: deep
+    failure_policy: retry
+
+  bibtex_validator:
+    objective: >-
+      Validate and normalise BibTeX records against authoritative metadata; the only
+      agent permitted to write references.bib.
+    capabilities: [FETCH, SCHOLARLY, FS_READ, FS_WRITE, KB_READ, LLM]
+    skills: [bibtex_verification]
+    tools: [retrieve_bibtex, verify_doi, bib_validate, read_file, write_file,
+            kb_query, gemini_structured_output]
+    constraints:
+      write_paths: ["manuscript/references.bib"]
+    model_role: fast
+    failure_policy: retry
+
+  # ─────────────────────────── verification ───────────────────────────
+  technical_verifier:
+    objective: >-
+      Check factual and technical correctness against primary evidence: algorithms,
+      mathematics, architectures, benchmark interpretation, chronology, contradictions.
+    capabilities: [FETCH, SCHOLARLY, FS_READ, KB_READ, LLM]
+    skills: [book_retrieval, technical_verification]
+    tools: [read_file, kb_query, kb_retrieve_context, parse_pdf, download_pdf,
+            fetch_url, fetch_arxiv_paper, gemini_structured_output]
+    model_role: deep
+    failure_policy: retry
+
+  editorial_verifier:
+    objective: >-
+      Check pedagogical fit: level, prerequisites, clarity, terminology, transitions,
+      duplication, unnecessary complexity, and consistency with the book's voice.
+    capabilities: [FS_READ, KB_READ, LLM]
+    skills: [book_retrieval, editorial_verification]
+    tools: [read_file, kb_query, kb_retrieve_context, gemini_structured_output]
+    model_role: balanced
+    failure_policy: retry
+
+  cross_chapter_consistency_agent:
+    objective: >-
+      Detect contradictory claims, divergent terminology for one concept, and duplicated
+      explanations across chapters.
+    capabilities: [FS_READ, KB_READ, LLM]
+    skills: [book_retrieval, cross_chapter_consistency]
+    tools: [read_file, kb_query, kb_retrieve_context, gemini_embedding, gemini_structured_output]
+    model_role: deep
+    failure_policy: retry
+
+  book_qa_agent:
+    objective: >-
+      Run deterministic, semantic and global QA over the book after a change, without
+      ever loading the whole manuscript into one context.
+    # FETCH is required by check_links, which resolves every URL in the manuscript.
+    capabilities: [FETCH, FS_READ, KB_READ, LLM, BUILD]
+    skills: [book_qa, book_retrieval]
+    tools: [read_file, list_files, search_repository, build_book, run_tests, latex_lint,
+            bib_validate, check_links, check_figures, kb_query, kb_retrieve_context,
+            gemini_structured_output]
+    model_role: deep
+    failure_policy: retry
+
+  # ───────────────────────────── visual ─────────────────────────────
+  visual_need_detector:
+    objective: >-
+      Decide whether a figure genuinely helps at a given place, and specify what it must
+      show. Also picks up unresolved \bookimage placeholders.
+    capabilities: [FS_READ, KB_READ, LLM]
+    skills: [visual_need_detection]
+    tools: [read_file, kb_query, kb_retrieve_context, gemini_structured_output]
+    model_role: balanced
+    failure_policy: degrade
+
+  image_search_agent:
+    objective: >-
+      Find candidate images for a visual requirement, preferring sources that carry
+      machine-readable licence metadata.
+    capabilities: [SEARCH, FETCH, FS_WRITE, KB_READ, LLM]
+    skills: [visual_search]
+    tools: [search_wikimedia_images, search_openverse_images, web_search,
+            download_image, kb_query, gemini_structured_output]
+    constraints:
+      write_paths: ["figures/candidates/**"]
+    model_role: fast
+    failure_policy: degrade
+
+  semantic_image_verifier:
+    objective: >-
+      Judge whether a candidate image actually depicts the required elements and
+      relationships. A keyword match is not a match.
+    capabilities: [FS_READ, KB_READ, LLM]
+    skills: [visual_verification]
+    tools: [read_file, inspect_image, kb_query, gemini_structured_output]
+    model_role: balanced
+    failure_policy: degrade
+
+  license_checker:
+    objective: >-
+      Confirm an image is redistributable in a published book and assemble the required
+      attribution. Unknown licence means rejected.
+    capabilities: [FETCH, FS_READ, KB_READ, LLM]
+    skills: [visual_verification]
+    tools: [fetch_url, read_file, inspect_image, kb_query, gemini_structured_output]
+    model_role: fast
+    failure_policy: fail_pipeline
+
+  diagram_generator_agent:
+    objective: >-
+      Produce an original diagram from a declarative spec when no acceptable image
+      exists, matching the book's visual style.
+    capabilities: [FS_READ, FS_WRITE, KB_READ, LLM]
+    skills: [figure_generation]
+    tools: [read_file, render_diagram, generate_image, optimize_image,
+            kb_query, gemini_structured_output]
+    constraints:
+      write_paths: ["figures/generated/**"]
+    model_role: deep
+    failure_policy: degrade
+
+  figure_qa_agent:
+    objective: >-
+      Final check on a figure before it enters the book: legibility at print size,
+      correctness, caption/alt-text agreement.
+    capabilities: [FS_READ, KB_READ, LLM]
+    skills: [figure_qa]
+    tools: [read_file, inspect_image, kb_query, gemini_structured_output]
+    model_role: balanced
+    failure_policy: degrade
+
+  asset_manager:
+    objective: >-
+      Place approved figures into the manuscript and record licence, attribution and
+      provenance. The only agent that may write manuscript/images/.
+    capabilities: [FS_READ, FS_WRITE, KB_READ, KB_WRITE]     # no LLM: deterministic
+    skills: []
+    tools: [read_file, write_file, list_files, optimize_image, kb_query, kb_upsert]
+    constraints:
+      write_paths: ["manuscript/images/**", "figures/approved/**"]
+    failure_policy: fail_pipeline
+
+  # ───────────────────────────── delivery ─────────────────────────────
+  git_agent:
+    objective: >-
+      Branch, apply accepted changes, verify the build, write a changelog, commit, push
+      and open a pull request against the Living Book repository.
+    # FS_WRITE is required by git_commit (staging) and by the changelog it writes;
+    # the write scope below keeps that confined to changelog/.
+    capabilities: [FS_READ, FS_WRITE, KB_READ, KB_WRITE, LLM, BUILD, GIT]
+    skills: [git_publishing]
+    tools: [read_file, list_files, git_status, git_diff, create_branch, git_commit,
+            git_push, create_pull_request, build_book, run_tests, write_file,
+            kb_query, kb_upsert, gemini_generate]
+    constraints:
+      write_paths: ["changelog/**"]
+      forbidden_branches: [main, master]
+    failure_policy: escalate_to_human
+
+  email_agent:
+    objective: >-
+      Notify the maintainer when, and only when, the manuscript actually changed,
+      with the full evidence and verification trail.
+    capabilities: [FS_READ, KB_READ, KB_WRITE, LLM, EMAIL]
+    skills: [email_reporting]
+    tools: [read_file, send_email, kb_query, kb_upsert, gemini_generate]
+    failure_policy: retry
+
+  # ─────────────────────────── orchestrator ───────────────────────────
+  orchestrator:
+    objective: >-
+      Schedule work, advance pipeline state, enforce dependencies, retries and approval
+      gates. Holds no research opinion and has no LLM access.
+    capabilities: [FS_READ, KB_READ, KB_WRITE]
+    skills: []
+    tools: [read_file, list_files, kb_query, kb_upsert]
+    failure_policy: retry
