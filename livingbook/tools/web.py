@@ -228,7 +228,9 @@ def _extract_links(page: str, base: str) -> list[dict[str, str]]:
 @tool("fetch_rss", [Capability.FETCH],
       description="Fetch and parse an RSS/Atom feed.")
 async def fetch_rss(url: str, *, limit: int = 25) -> list[dict[str, Any]]:
-    raw = await get_bytes(url, timeout=45, max_bytes=8 * 1024 * 1024)
+    # Browser user-agent: several publisher feeds (pytorch.org among them) return 403
+    # to the polite bot UA while serving the identical feed to a browser.
+    raw = await get_bytes(url, timeout=45, max_bytes=8 * 1024 * 1024, browser_ua=True)
     try:
         import feedparser
     except ImportError as exc:  # pragma: no cover

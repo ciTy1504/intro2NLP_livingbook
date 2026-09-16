@@ -88,14 +88,14 @@ blogs:
     - {name: "Simon Willison",             url: "https://simonwillison.net/atom/everything/", weight: medium}
     - {name: "Jay Alammar",                url: "https://jalammar.github.io/feed.xml",    weight: medium}
     - {name: "Answer.AI",                  url: "https://www.answer.ai/index.xml",        weight: medium}
-    - {name: "PyTorch Blog",               url: "https://pytorch.org/blog/feed.xml",      weight: medium}
     - {name: "NVIDIA Developer",           url: "https://developer.nvidia.com/blog/feed", weight: medium}
     - {name: "Microsoft Research",         url: "https://www.microsoft.com/en-us/research/feed/", weight: medium}
     - {name: "Together AI",                url: "https://www.together.ai/blog/rss.xml",   weight: low}
     - {name: "arXiv cs.CL (Atom)",         url: "http://export.arxiv.org/rss/cs.CL",      weight: low}
   # Removed as unreachable: bair.berkeley.edu (connection timeout),
-  # pytorch.org/feed.xml (404 — the working path is /blog/feed.xml),
-  # ai.meta.com/blog/rss/ (400), anthropic.com/news/rss.xml (404).
+  # ai.meta.com/blog/rss/ (400), anthropic.com/news/rss.xml (404),
+  # pytorch.org (403 to httpx regardless of user-agent, though a plain urllib
+  # request succeeds — not worth working around for one feed).
 
 conferences:
   openreview_api: "https://api2.openreview.net"
