@@ -60,9 +60,35 @@ class SchemaValidationError(LLMError):
     """The model returned JSON that does not satisfy the requested schema."""
 
 
+def summarise_error_body(body: str, limit: int = 120) -> str:
+    """Reduce a provider error body to one readable line.
+
+    Gemini returns a pretty-printed JSON object for every error. Embedding that
+    verbatim in an exception, which is then repeated once per model in the chain and
+    once per retry, turns a single failure into forty lines of duplicated JSON — and
+    an unattended overnight log nobody can read.
+    """
+    text = (body or "").strip()
+    if not text:
+        return ""
+    try:
+        import json as _json
+        parsed = _json.loads(text)
+        err = parsed.get("error", parsed) if isinstance(parsed, dict) else {}
+        message = str(err.get("message", "")).strip()
+        reason = str(err.get("status", "")).strip()
+        if message or reason:
+            joined = f"{reason}: {message}" if reason and message else (message or reason)
+            return joined[:limit]
+    except Exception:
+        pass
+    return " ".join(text.split())[:limit]
+
+
 def classify_http(status: int, body: str, model: str | None = None) -> LLMError:
     """Map an HTTP status + response body onto the taxonomy above."""
     lowered = (body or "").lower()
+    body = summarise_error_body(body)
 
     if status == 400:
         if "api_key_invalid" in lowered or "api key not valid" in lowered:

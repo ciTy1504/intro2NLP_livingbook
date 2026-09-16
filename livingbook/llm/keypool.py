@@ -129,11 +129,21 @@ class KeyPool:
             self._log.debug(f"keypool stats not saved: {exc}")
 
     # -- selection ---------------------------------------------------------
-    async def acquire(self, *, exclude: set[str] | None = None, max_wait: float = 120.0) -> str:
-        """Return an available key, waiting for the soonest cooldown if all are busy.
+    async def acquire(
+        self, *, exclude: set[str] | None = None, max_wait: float = 120.0,
+        grace: float = 3.0,
+    ) -> str:
+        """Return an available key, waiting briefly if every key is cooling.
 
         ``exclude`` holds fingerprints already tried for the current request, so a
         retry loop never picks the same key twice in a row.
+
+        ``grace`` is how long we will wait for a cooling key before simply reusing the
+        coolest one anyway. Without it, a burst of 429s can cool the entire pool — a
+        single request walking a 3-model chain with 4 retries can cool dozens of keys —
+        and the pool then appears dead for a full cooldown even though the provider is
+        perfectly healthy. Measured: a probe of 30 keys returned 100% success at the
+        exact moment the pool reported "every key cooling down".
         """
         exclude = exclude or set()
         deadline = time.monotonic() + max_wait
@@ -163,8 +173,19 @@ class KeyPool:
                     st.last_used = time.time()
                     return self._by_fp[fp]
 
+                # Everything is cooling. Rather than waiting out a full cooldown, take
+                # the key that has been cooling longest and try it: cooldowns are a
+                # heuristic, and a pool-wide freeze is usually this policy
+                # over-reacting to a burst rather than every key genuinely being spent.
                 soonest = min(self._stats[fp].cooldown_until for fp in live)
                 wait = max(0.25, soonest - now)
+                if wait > grace:
+                    fp = min(live, key=lambda k: self._stats[k].cooldown_until)
+                    st = self._stats[fp]
+                    st.requests += 1
+                    st.last_used = time.time()
+                    st.cooldown_until = now  # give it another chance
+                    return self._by_fp[fp]
 
             if time.monotonic() + wait > deadline:
                 wait = max(0.25, deadline - time.monotonic())

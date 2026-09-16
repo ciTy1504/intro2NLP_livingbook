@@ -128,7 +128,9 @@ class GeminiProvider(LLMProvider):
 
         for _ in range(self.max_key_attempts):
             try:
-                key = await self.pool.acquire(exclude=tried)
+                # Short wait: if every key is cooling, failing fast into the
+                # retry/fallback path beats parking this coroutine for minutes.
+                key = await self.pool.acquire(exclude=tried, max_wait=45.0)
             except NoKeysAvailable as exc:
                 raise QuotaExhausted(str(exc), model=model) from exc
             tried.add(key_fingerprint(key))
@@ -226,9 +228,15 @@ class GeminiProvider(LLMProvider):
                         break
                     await asyncio.sleep(self.retry.delay_for(attempt))
 
+        # One line per distinct failure, not one per attempt: a chain of 3 models at
+        # 4 retries each otherwise emits 12 near-identical paragraphs.
+        distinct: list[str] = []
+        for e in errors:
+            if e not in distinct:
+                distinct.append(e)
         raise AllModelsFailed(
-            f"all models failed for role {role!r} ({kind}). "
-            + " | ".join(errors[-4:])
+            f"all models failed for role {role!r} ({kind}): "
+            + "; ".join(distinct[:4])
         )
 
     # -- text generation ---------------------------------------------------

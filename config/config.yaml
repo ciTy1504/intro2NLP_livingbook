@@ -27,18 +27,24 @@ llm:
   keypool:
     path: secrets/gemini_keypool.txt   # overridable via GEMINI_KEYPOOL_PATH
     accepted_prefixes: ["AIzaSy", "AQ.Ab8"]
-    cooldown_seconds: 90               # after 429/403 on a key
-    max_key_attempts: 8                # distinct keys tried before advancing the model chain
+    # Short, because a 429 here is usually a momentary burst rather than a spent key,
+    # and a long cooldown multiplied by the retry fan-out freezes the whole pool.
+    cooldown_seconds: 25
+    # Low, for the same reason: this bounds how many healthy keys one failing request
+    # can take out of rotation (attempts x retries x models).
+    max_key_attempts: 3
     # A key is retired only after this many consecutive hard failures with no
     # success in between. Disabling on a single 403 silently shrank the pool.
     max_strikes: 5
   rate_limit:
     max_concurrency: 12                # global in-flight Gemini requests
     min_interval_ms: 0
-    # Measured: a full book index ran at a 14% success rate, so most requests were
-    # spent re-discovering that the provider was saturated. Adaptive backoff pauses
-    # globally when the recent 429 ratio climbs, instead of rotating keys pointlessly.
-    adaptive: true
+    # OFF after measurement. A 14% success rate looks alarming, but those 429s are
+    # cheap — one fast round trip, then a different key — and that run still made
+    # 2,173 completions at ~116/min. Enabling a global pause collapsed throughput,
+    # because pausing everything to dodge a cheap failure costs more than the failure.
+    # Turn this on only for a provider whose 429s are slow or account-wide.
+    adaptive: false
   retry:
     max_attempts: 4
     base_delay_seconds: 1.5
@@ -59,8 +65,10 @@ research:
   cycle_hours: 6
   lookback_days: 21                    # discovery window for a normal cycle
   bootstrap_lookback_days: 120         # first ever run
-  max_items_per_source_per_cycle: 40
-  max_concurrent_source_agents: 4
+  # Sized so a cycle finishes comfortably inside the pool's capacity. Discovery runs
+  # every 6 hours, so breadth comes from repetition rather than from one large burst.
+  max_items_per_source_per_cycle: 12
+  max_concurrent_source_agents: 2
   topics:
     - large language models
     - transformer architecture
