@@ -72,21 +72,30 @@ huggingface:
                allenai, HuggingFaceTB, nvidia, openai, ai21labs, CohereLabs]
 
 blogs:
-  # RSS/Atom feeds. Verified reachable.
+  # RSS/Atom feeds, each verified to return a parseable feed on 2026-09-16.
+  # Dead entries are removed rather than left in: every cycle re-fetches this list,
+  # and a feed that times out costs ~12s of wall clock for nothing while burying real
+  # warnings in the log. Re-probe with scripts/probe_feeds.py before adding one.
   feeds:
     - {name: "Lil'Log (Lilian Weng)",      url: "https://lilianweng.github.io/index.xml", weight: high}
     - {name: "Hugging Face Blog",          url: "https://huggingface.co/blog/feed.xml",   weight: high}
     - {name: "Google Research Blog",       url: "https://research.google/blog/rss/",      weight: high}
-    - {name: "BAIR Blog",                  url: "https://bair.berkeley.edu/blog/feed.xml", weight: medium}
-    - {name: "Stanford AI Lab",            url: "https://ai.stanford.edu/blog/feed.xml",  weight: medium}
+    - {name: "Google DeepMind",            url: "https://deepmind.google/blog/rss.xml",   weight: high}
+    - {name: "OpenAI News",                url: "https://openai.com/news/rss.xml",        weight: high}
     - {name: "Sebastian Raschka",          url: "https://magazine.sebastianraschka.com/feed", weight: high}
+    - {name: "Stanford AI Lab",            url: "https://ai.stanford.edu/blog/feed.xml",  weight: medium}
     - {name: "Eugene Yan",                 url: "https://eugeneyan.com/rss/",             weight: medium}
     - {name: "Simon Willison",             url: "https://simonwillison.net/atom/everything/", weight: medium}
     - {name: "Jay Alammar",                url: "https://jalammar.github.io/feed.xml",    weight: medium}
     - {name: "Answer.AI",                  url: "https://www.answer.ai/index.xml",        weight: medium}
-    - {name: "PyTorch Blog",               url: "https://pytorch.org/feed.xml",           weight: medium}
+    - {name: "PyTorch Blog",               url: "https://pytorch.org/blog/feed.xml",      weight: medium}
+    - {name: "NVIDIA Developer",           url: "https://developer.nvidia.com/blog/feed", weight: medium}
+    - {name: "Microsoft Research",         url: "https://www.microsoft.com/en-us/research/feed/", weight: medium}
     - {name: "Together AI",                url: "https://www.together.ai/blog/rss.xml",   weight: low}
     - {name: "arXiv cs.CL (Atom)",         url: "http://export.arxiv.org/rss/cs.CL",      weight: low}
+  # Removed as unreachable: bair.berkeley.edu (connection timeout),
+  # pytorch.org/feed.xml (404 — the working path is /blog/feed.xml),
+  # ai.meta.com/blog/rss/ (400), anthropic.com/news/rss.xml (404).
 
 conferences:
   openreview_api: "https://api2.openreview.net"
