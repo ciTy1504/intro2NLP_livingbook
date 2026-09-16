@@ -73,6 +73,25 @@ python -m livingbook.cli daemon                # run continuously on the schedul
 every agent contract, checks the manuscript parses, reports which credentials are
 missing and what that disables, and confirms the LaTeX toolchain is present.
 
+### Two credentials are still outstanding
+
+Everything runs without them, but two capabilities are disabled until they exist in
+`secrets/.env`:
+
+```bash
+# 1. Publishing. Without it, changes are committed to a local agent/ branch and go
+#    no further. Also lifts the GitHub research API from 60 to 5000 requests/hour,
+#    which currently costs the benchmark and GitHub agents most of their results.
+GITHUB_TOKEN=github_pat_...        # fine-grained PAT, Contents + Pull requests: write
+
+# 2. Notification. Without it, accepted changes publish silently.
+GMAIL_USER=you@gmail.com
+GMAIL_PASS=xxxx xxxx xxxx xxxx     # Google App Password, not the account password
+EMAIL_RECIPIENTS=you@gmail.com
+```
+
+Then `python -m livingbook.cli doctor` and `python -m livingbook.cli email test`.
+
 ### What you need to supply
 
 | Secret | Needed for | Without it |
@@ -227,11 +246,25 @@ has no LLM access at all.
 
 ## Operational notes
 
-**The key pool is shared and contended.** 254 keys. A full book index measured a 14%
-success rate, which means the quota is largely upstream of the individual key —
-rotating keys does not help, pausing does. The rate limiter watches the recent 429
-ratio and backs off globally. Keys are retired only after five consecutive hard
-failures; `llm revive` brings them all back after a provider incident.
+**Similarity thresholds are measured, not guessed.** Embeddings of any two
+machine-learning abstracts sit at a high baseline cosine. Measured over 780 real
+research-item pairs with `gemini-embedding-001`:
+
+    min 0.749   p5 0.796   p50 0.831   p95 0.885   max 0.978
+
+The first clustering threshold was 0.74 — *below the minimum observed pair* — so every
+item merged with every other and 40 distinct items produced one cluster. Anything that
+compares embeddings here must be calibrated against this distribution. Re-measure with
+`python scripts/calibrate_clustering.py` after changing the embedding model.
+
+**The key pool is shared and contended.** 254 keys, with a measured ~14% success rate
+under load. That sounds alarming and is not: those 429s cost one fast round trip, and
+the run that measured them still completed 2,173 requests at ~116/min. An earlier
+attempt to "fix" it with global backoff made throughput collapse, so adaptive backoff
+is off by default. Cooldowns are deliberately short (25s) and key attempts capped at 3,
+because the real failure mode was this policy freezing the pool: one failing request
+walking a 3-model chain could cool dozens of healthy keys. Keys are retired only after
+five consecutive hard failures; `llm revive` brings them all back after an incident.
 
 **No Pro-tier capacity exists on this pool.** Every role resolves to an ordered model
 chain and steps sideways on a 503. Re-measure with `llm probe` — the chains in
