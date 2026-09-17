@@ -101,7 +101,7 @@ class EditorialVerificationSkill(Skill):
 
     name = "editorial_verification"
     required_tools = ("gemini_structured_output",)
-    optional_tools = ("kb_retrieve_context", "kb_query", "read_file")
+    optional_tools = ("kb_retrieve_context", "kb_query", "read_file", "check_language")
 
     def __init__(self) -> None:
         super().__init__()
@@ -113,11 +113,38 @@ class EditorialVerificationSkill(Skill):
         self, ctx: AgentContext, *, text: str, location: str = "",
         surrounding_summaries: str = "", level: str = "", **_: Any,
     ) -> VerificationReport:
+        # Deterministic language check FIRST. A model asked "is this good Vietnamese?"
+        # weighs the paragraph as a whole, and a single foreign word inside fluent
+        # prose is easy to miss — this verifier passed "cơ chế sinh học của brain
+        # humano" on a real patch. A vocabulary check cannot miss it, so it runs
+        # regardless of what the model concludes.
+        language_findings: list[VerificationFinding] = []
+        if "check_language" in ctx.allowed_tools:
+            result = await ctx.try_call("check_language", default=None,
+                                        text=text, expect="vi")
+            if result:
+                for f in result.get("findings", []):
+                    language_findings.append(VerificationFinding(
+                        severity=f["severity"],
+                        kind=f["kind"],
+                        detail=f["detail"],
+                        location=f.get("context", "")[:300],
+                        suggested_fix=(
+                            f"remove or translate {f['word']!r}"
+                            if f["kind"] == "foreign_word"
+                            else f"confirm {f['word']!r} is intended; gloss it on first use"
+                        ),
+                    ))
+
         prompt = (
             "Review this new textbook passage for editorial and pedagogical fit. "
             "The book is a Vietnamese graduate-level text on NLP and LLMs. Answer in "
             "English; quote Vietnamese text when pointing at a problem.\n\n"
             "CHECK:\n"
+            "  - LANGUAGE PURITY: every word must be Vietnamese, an established English "
+            "technical term, or LaTeX. Flag as a BLOCKER any word from another language "
+            "(Spanish, Portuguese, French, Italian) that has drifted into the prose — "
+            "this has happened before and is easy to read past.\n"
             "  - level: does it match the surrounding material, or assume too much/little?\n"
             "  - prerequisites: does it use concepts the book has not introduced?\n"
             "  - clarity: would a reader at this point actually follow it?\n"
@@ -137,7 +164,20 @@ class EditorialVerificationSkill(Skill):
         )
         result = await ctx.call("gemini_structured_output", prompt=prompt,
                                 schema=FINDINGS_SCHEMA, temperature=0.15)
-        return _to_report("editorial_verifier", result["data"])
+        report = _to_report("editorial_verifier", result["data"])
+
+        # The deterministic findings are authoritative: they are merged in and can
+        # fail the report even when the model was satisfied.
+        if language_findings:
+            report.findings.extend(language_findings)
+            if any(f.severity in ("blocker", "major") for f in language_findings):
+                report.passed = False
+                blockers = [f.detail for f in language_findings
+                            if f.severity == "blocker"]
+                report.summary = (
+                    f"language check failed: {'; '.join(blockers[:2])}. "
+                    + report.summary)
+        return report
 
 
 class BookQASkill(Skill):
@@ -146,7 +186,8 @@ class BookQASkill(Skill):
     name = "book_qa"
     required_tools = ("gemini_structured_output",)
     optional_tools = ("build_book", "run_tests", "latex_lint", "bib_validate",
-                      "check_links", "check_figures", "kb_query", "kb_retrieve_context")
+                      "check_links", "check_figures", "check_language",
+                      "kb_query", "kb_retrieve_context")
 
     async def run(
         self, ctx: AgentContext, *, changed_files: list[str] | None = None,
@@ -160,6 +201,7 @@ class BookQASkill(Skill):
         report.deterministic = await self._deterministic(
             ctx, run_build=cfg.get("qa.run_build", True) if run_build is None else run_build,
             check_links=check_external_links,
+            patch_text=patch_text,
         )
         report.build_ok = bool(report.deterministic.get("build", {}).get("ok", True))
 
@@ -179,6 +221,7 @@ class BookQASkill(Skill):
     # -- tier 1: deterministic --------------------------------------------
     async def _deterministic(
         self, ctx: AgentContext, *, run_build: bool, check_links: bool,
+        patch_text: str = "",
     ) -> dict[str, Any]:
         """No LLM. Fast, objective, and able to fail a pipeline on facts."""
         out: dict[str, Any] = {}
@@ -187,6 +230,18 @@ class BookQASkill(Skill):
             if tool_name in ctx.allowed_tools:
                 out[key] = await ctx.try_call(
                     tool_name, default={"ok": True, "skipped": True})
+
+        # Language purity, on the added lines only. Checking the whole manuscript
+        # would flag the author's own established vocabulary, which is the baseline
+        # this check is measured against.
+        if patch_text and "check_language" in ctx.allowed_tools:
+            added = "\n".join(
+                ln[1:] for ln in patch_text.splitlines()
+                if ln.startswith("+") and not ln.startswith("+++"))
+            if added.strip():
+                out["language"] = await ctx.try_call(
+                    "check_language", default={"ok": True, "skipped": True},
+                    text=added, expect="vi")
         if check_links and "check_links" in ctx.allowed_tools:
             # Informational: a dead external link is a real defect but not one that
             # should block a manuscript change, since the web breaks on its own.

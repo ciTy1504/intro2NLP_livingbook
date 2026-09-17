@@ -221,7 +221,10 @@ agents:
       duplication, unnecessary complexity, and consistency with the book's voice.
     capabilities: [FS_READ, KB_READ, LLM]
     skills: [book_retrieval, editorial_verification]
-    tools: [read_file, kb_query, kb_retrieve_context, gemini_structured_output]
+    # check_language is deterministic and runs before the model: a single foreign
+    # word inside fluent prose is exactly what an LLM reviewer reads past.
+    tools: [read_file, kb_query, kb_retrieve_context, check_language,
+            gemini_structured_output]
     model_role: balanced
     failure_policy: retry
 
@@ -243,8 +246,8 @@ agents:
     capabilities: [FETCH, FS_READ, KB_READ, LLM, BUILD]
     skills: [book_qa, book_retrieval]
     tools: [read_file, list_files, search_repository, build_book, run_tests, latex_lint,
-            bib_validate, check_links, check_figures, kb_query, kb_retrieve_context,
-            gemini_structured_output]
+            bib_validate, check_links, check_figures, check_language, kb_query,
+            kb_retrieve_context, gemini_structured_output]
     model_role: deep
     failure_policy: retry
 

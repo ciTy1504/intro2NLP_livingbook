@@ -15,6 +15,7 @@ from . import (  # noqa: F401  (imported for registration side effects)
     filesystem,
     git_tools,
     kb,
+    language,
     llm_tools,
     scholarly,
     visual,
