@@ -425,6 +425,7 @@ async def search_bibliography(*, query: str, limit: int = 6) -> list[dict[str, A
         score /= len(terms)
         scored.append((score, {
             "bib_key": key,
+            "arxiv_id": _bib_arxiv_id(entry),
             "title": entry.fields.get("title", ""),
             "authors": entry.fields.get("author", ""),
             "year": entry.fields.get("year", ""),
@@ -440,6 +441,26 @@ async def search_bibliography(*, query: str, limit: int = 6) -> list[dict[str, A
     scored.sort(key=lambda x: -x[0])
     return [c for _, c in scored[:limit]]
 
+
+def _bib_arxiv_id(entry: Any) -> str:
+    """Pull an arXiv id out of wherever the entry happens to keep it.
+
+    Of the 228 entries in this book, one has a doi and two have a url, but 58 carry
+    an arXiv id inside note={arXiv:2211.17192} or the standard eprint field. Without
+    an identifier the verifier has nothing to confirm identity against, falls back to
+    a title search and can match the wrong paper: it resolved Leviathan et al. (ICML
+    2023) to an unrelated 2026 paper and rejected a correct primary citation.
+    """
+    for field in ("eprint", "arxivid", "note", "url", "howpublished"):
+        value = entry.fields.get(field) or ""
+        if not value:
+            continue
+        if "arxiv" not in value.lower() and field not in ("eprint", "arxivid"):
+            continue
+        m = re.search(r"(?:arxiv[:/ ]*)?(\d{4}\.\d{4,5}(?:v\d+)?)", value, re.I)
+        if m:
+            return m.group(1)
+    return ""
 
 #: Words too common in a claim to identify an entry.
 _BIB_STOPWORDS = {

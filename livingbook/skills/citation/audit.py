@@ -343,8 +343,26 @@ class CitationVerificationSkill(Skill):
                     full_text = (picked or parsed["text"])[:40000]
                     source_of_text = f"full text ({parsed['pages_parsed']} pages)"
 
+        # A candidate drawn from the book's own bibliography has its identity settled
+        # by provenance: the author put it there. The identity check exists to catch a
+        # model inventing a paper, which is not a risk for an entry already in the
+        # file. Re-resolving it externally is worse than useless here — only 1 of the
+        # 228 entries carries a DOI, so resolution falls back to a title search, and
+        # that matched Leviathan et al. (ICML 2023) to an unrelated 2026 paper and
+        # rejected a correct primary citation.
+        #
+        # This settles identity only. Whether the source supports *this* claim is a
+        # separate question and is still asked in full below.
+        from_book = bool(getattr(candidate, "bib_key", ""))
+
         identity_block = ""
-        if identity and identity.get("resolved"):
+        if from_book:
+            identity_block = (
+                "IDENTITY: already settled. This source is cited in this book as "
+                f"\\cite{{{candidate.bib_key}}}, so it is a real work the author has "
+                "already vetted. Treat identity_confirmed as true and spend your "
+                "scepticism on whether it establishes THIS claim.\n\n")
+        elif identity and identity.get("resolved"):
             identity_block = (
                 f"AUTHORITATIVE METADATA (resolved via {identity.get('sources_consulted')}):\n"
                 f"  title: {identity.get('title')}\n"
@@ -394,7 +412,7 @@ class CitationVerificationSkill(Skill):
         laundered = bool(d.get("laundering_detected"))
         if laundered and cfg.get("citation.reject_on_laundering", True):
             verdict = "needs_primary"
-        if not d.get("identity_confirmed"):
+        if not d.get("identity_confirmed") and not from_book:
             verdict = "reject"
         if d.get("supports_claim") in ("does_not_support", "unverifiable"):
             verdict = "reject"
@@ -409,7 +427,7 @@ class CitationVerificationSkill(Skill):
 
         return CitationVerification(
             candidate=candidate,
-            identity_confirmed=bool(d.get("identity_confirmed")),
+            identity_confirmed=bool(d.get("identity_confirmed")) or from_book,
             supports_claim=d.get("supports_claim", "unverifiable"),
             evidence_quote=(d.get("evidence_quote") or "")[:2000],
             experimental_setup=(d.get("experimental_setup") or "")[:1500],

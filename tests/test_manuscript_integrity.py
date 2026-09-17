@@ -228,3 +228,37 @@ def test_an_existing_key_survives_onto_the_candidate():
     assert "bib_key=" in src, "CitationCandidate must be given the existing key"
     assert "ALREADY CITED IN THIS BOOK" in src, (
         "the ranker cannot prefer an already-cited source it cannot see")
+
+
+def test_arxiv_ids_are_recovered_from_wherever_the_entry_keeps_them():
+    """One of 228 entries has a DOI. Without the arXiv id there is no identifier."""
+    import asyncio
+
+    from livingbook.tools.book import search_bibliography
+
+    hits = asyncio.run(search_bibliography(
+        query="speculative decoding T5-XXL 2-3x speedup"))
+    by_key = {h["bib_key"]: h for h in hits}
+    # leviathan2023speculative keeps it in note={arXiv:2211.17192}, not a doi field.
+    assert by_key["leviathan2023speculative"]["arxiv_id"] == "2211.17192"
+
+
+def test_a_source_already_in_the_book_is_not_re_identified_externally():
+    """Provenance settles identity; external resolution actively got this wrong.
+
+    The verifier resolved Leviathan et al. (ICML 2023) — an entry sitting in
+    references.bib — to an unrelated 2026 paper via a Crossref title search, set
+    identity_confirmed=False, and rejected a correct primary citation.
+    """
+    import inspect
+
+    from livingbook.skills.citation.audit import CitationVerificationSkill
+
+    src = inspect.getsource(CitationVerificationSkill)
+    assert "from_book" in src
+    assert 'if not d.get("identity_confirmed") and not from_book:' in src, (
+        "an entry the author already vetted must not be rejected on identity")
+    # But the support check must still run: being in the bibliography does not mean
+    # it establishes this particular claim.
+    assert 'if d.get("supports_claim") in ("does_not_support", "unverifiable"):' in src
+    assert "laundering_detected" in src
