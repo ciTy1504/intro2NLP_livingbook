@@ -49,6 +49,10 @@ HOST_INTERVALS: dict[str, float] = {
 }
 DEFAULT_INTERVAL = 0.4
 
+#: Longest we will ever wait on a single 429, whatever Retry-After claims.
+#: A source that wants more than this is telling us to come back another cycle.
+MAX_RETRY_AFTER = 45.0
+
 
 class HostLimiter:
     def __init__(self) -> None:
@@ -135,9 +139,17 @@ async def request(
                 raise ToolUnavailable(f"{host}: {type(exc).__name__}: {exc}") from exc
         else:
             if resp.status_code == 429:
-                # Respect Retry-After when the server sends one; it is usually far more
-                # accurate than our backoff guess.
-                delay = _retry_after(resp) or min(8.0 * attempt, 30.0)
+                # Respect Retry-After, but never blindly. OpenAlex answered one request
+                # with Retry-After: 68365 — 19 hours — and honouring it parked the
+                # coroutine for the rest of the day. A hint that long is not a pause,
+                # it is a refusal: give up on this source for this cycle and let the
+                # caller degrade, which is what every research agent already does.
+                hinted = _retry_after(resp)
+                if hinted and hinted > MAX_RETRY_AFTER:
+                    raise ToolUnavailable(
+                        f"{host}: rate limited with Retry-After {hinted:.0f}s "
+                        f"(over the {MAX_RETRY_AFTER:.0f}s cap); skipping this source")
+                delay = min(hinted or (8.0 * attempt), MAX_RETRY_AFTER)
                 log.debug(f"{host}: 429, backing off {delay:.1f}s (attempt {attempt})")
                 if attempt == retries:
                     raise ToolUnavailable(f"{host}: rate limited after {retries} attempts")

@@ -285,17 +285,17 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; color: var(--ink
     </div>
     <div class="meta">
       <span id="generated">—</span>
-      <button class="themer" id="themer" type="button">Theme</button>
+      <button class="themer" id="themer" type="button">Giao diện</button>
     </div>
   </header>
 
-  <div class="strip clear" id="strip"><span>Loading…</span></div>
+  <div class="strip clear" id="strip"><span>Đang tải…</span></div>
 
   <section class="headline">
-    <p class="eyebrow">What the system decided</p>
+    <p class="eyebrow">Hệ thống đã quyết định gì</p>
     <div class="verdict-figure">
       <span class="big" id="refused-n">—</span>
-      <span class="of" id="refused-of">of — research clusters were refused</span>
+      <span class="of" id="refused-of">trên — cụm nghiên cứu bị từ chối</span>
     </div>
     <div class="ratio" id="ratio"></div>
     <div class="ratio-key" id="ratio-key"></div>
@@ -306,66 +306,66 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; color: var(--ink
 
   <div class="grid">
     <section class="panel">
-      <h2>Where the research came from</h2>
-      <p class="sub">Eight source agents, each with its own semantics. One adapter per
-        source, not one generic scraper.</p>
+      <h2>Nghiên cứu đến từ đâu</h2>
+      <p class="sub">Tám agent nguồn, mỗi agent một ngữ nghĩa riêng. Mỗi nguồn một adapter,
+        không phải một scraper dùng chung.</p>
       <div class="bars" id="sources"></div>
     </section>
 
     <section class="panel">
-      <h2>Evidence mix</h2>
-      <p class="sub">Ordered by the weight the system gives it. A source may only emit
-        the kinds it can justify — GitHub cannot produce scientific evidence.</p>
+      <h2>Cơ cấu bằng chứng</h2>
+      <p class="sub">Sắp theo trọng số hệ thống gán. Mỗi nguồn chỉ được phát ra loại bằng chứng
+        nó biện minh được — GitHub không thể tạo bằng chứng khoa học.</p>
       <div class="bars" id="evidence"></div>
     </section>
   </div>
 
   <div class="grid">
     <section class="panel">
-      <h2>Research maturity</h2>
-      <p class="sub">Computed from the evidence mix, never from recency. Maturity caps
-        what a verdict is allowed to decide.</p>
+      <h2>Độ chín của nghiên cứu</h2>
+      <p class="sub">Tính từ cơ cấu bằng chứng, không phải từ độ mới. Độ chín giới hạn mức thay đổi
+        mà verdict được phép quyết.</p>
       <div class="bars" id="maturity"></div>
     </section>
 
     <section class="panel">
-      <h2>Pipeline state</h2>
-      <p class="sub">Every change moves through a persisted state machine. A crash
-        resumes where it stopped.</p>
+      <h2>Trạng thái pipeline</h2>
+      <p class="sub">Mọi thay đổi đi qua một state machine lưu bền. Nếu sập, hệ thống chạy tiếp
+        từ chỗ dừng.</p>
       <div class="bars" id="pipelines"></div>
     </section>
   </div>
 
   <section class="panel" id="panel-changes" style="margin-bottom:16px">
-    <h2>Changes the system decided to make</h2>
-    <p class="sub">Each cleared the evidence floor and the maturity gate before any
-      model was asked for an opinion.</p>
+    <h2>Thay đổi hệ thống quyết định làm</h2>
+    <p class="sub">Mỗi thay đổi đã vượt ngưỡng bằng chứng và cổng độ chín, trước khi bất kỳ
+      model nào được hỏi ý kiến.</p>
     <div id="changes"></div>
   </section>
 
   <section class="panel" id="panel-refusals" style="margin-bottom:16px">
-    <h2>Research it refused to act on</h2>
-    <p class="sub">The default answer is no change. These are kept under observation and
-      re-evaluated as evidence accumulates.</p>
+    <h2>Nghiên cứu bị từ chối</h2>
+    <p class="sub">Mặc định là không sửa sách. Những mục này vẫn được theo dõi và đánh giá lại
+      khi bằng chứng tích luỹ thêm.</p>
     <div id="refusals"></div>
   </section>
 
   <div class="grid">
     <section class="panel">
-      <h2>Recent research</h2>
-      <p class="sub">Newest first, with the lifecycle the system assigned.</p>
+      <h2>Nghiên cứu mới nhất</h2>
+      <p class="sub">Mới nhất trước, kèm vòng đời hệ thống đã gán.</p>
       <div class="tbl-scroll"><table>
-        <thead><tr><th>Source</th><th>Title</th><th>State</th></tr></thead>
+        <thead><tr><th>Nguồn</th><th>Tiêu đề</th><th>Vòng đời</th></tr></thead>
         <tbody id="recent"></tbody>
       </table></div>
     </section>
 
     <section class="panel">
-      <h2>Schedule</h2>
-      <p class="sub">Due times live in the database, so a restart does not reset them and
-        a missed window fires on next start.</p>
+      <h2>Lịch chạy</h2>
+      <p class="sub">Thời điểm đến hạn nằm trong database, nên khởi động lại không reset, và cửa sổ
+        bị lỡ sẽ chạy ở lần khởi động kế tiếp.</p>
       <div class="tbl-scroll"><table>
-        <thead><tr><th>Job</th><th>Every</th><th>Last</th><th>Status</th></tr></thead>
+        <thead><tr><th>Công việc</th><th>Mỗi</th><th>Lần cuối</th><th>Kết quả</th></tr></thead>
         <tbody id="schedule"></tbody>
       </table></div>
     </section>
@@ -394,6 +394,33 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; color: var(--ink
   };
   var n = function (v) { return (v || 0).toLocaleString("en-US"); };
 
+  /* Read labels get Vietnamese; identifiers do not. Pipeline states and source names
+     are what you type into the CLI and grep in the logs, so they stay verbatim. */
+  var VI_EVIDENCE = {
+    "scientific": "khoa học",
+    "independent_verification": "kiểm chứng độc lập",
+    "practical": "thực tiễn",
+    "adoption": "mức độ được dùng",
+    "author_claim": "tác giả tự nhận",
+    "community": "cộng đồng",
+    "anecdotal_practical": "kinh nghiệm lẻ"
+  };
+  var VI_MATURITY = {
+    "speculative": "còn suy đoán",
+    "emerging": "mới nổi",
+    "consolidating": "đang định hình",
+    "mature": "đã chín",
+    "superseded": "đã bị thay thế"
+  };
+  var VI_LIFECYCLE = {
+    "DISCOVERED": "mới tìm thấy",
+    "SEEN": "đã thấy lại",
+    "MONITOR": "đang theo dõi",
+    "DISMISSED": "đã loại",
+    "INTEGRATED": "đã đưa vào sách",
+    "SUPERSEDED": "đã bị thay thế"
+  };
+
   /* ── theme toggle ─────────────────────────────────────────────── */
   (function () {
     var btn = $("themer"), root = document.documentElement;
@@ -414,7 +441,7 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; color: var(--ink
   var book = D.book || {};
   $("book-title").textContent = book.title || "—";
   if (D.generated_at) {
-    $("generated").textContent = "snapshot " + D.generated_at.replace("T", " ").replace("+00:00", " UTC");
+    $("generated").textContent = "ảnh chụp lúc " + D.generated_at.replace("T", " ").replace("+00:00", " UTC");
   }
 
   /* ── attention strip ──────────────────────────────────────────── */
@@ -422,55 +449,53 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; color: var(--ink
   var strip = $("strip");
   if (stuck.length) {
     strip.className = "strip attn";
-    strip.innerHTML = "<div><strong>" + stuck.length + " pipeline" +
-      (stuck.length > 1 ? "s need" : " needs") + " an operator</strong><ul>" +
+    strip.innerHTML = "<div><strong>" + stuck.length + " pipeline cần người xử lý</strong><ul>" +
       stuck.map(function (p) {
         return "<li><code>" + esc(p.id) + "</code> — " + esc(p.state) +
           (p.title ? " · " + esc(String(p.title).slice(0, 62)) : "") + "</li>";
       }).join("") + "</ul></div>";
   } else {
     strip.className = "strip clear";
-    strip.innerHTML = "<span><strong>Nothing needs you.</strong> " +
-      "Every pipeline is either moving, under observation, or finished.</span>";
+    strip.innerHTML = "<span><strong>Không có gì cần anh xử lý.</strong> " +
+      "Mọi pipeline đều đang chạy, đang theo dõi, hoặc đã xong.</span>";
   }
 
   /* ── the headline: how much it refused ────────────────────────── */
   var v = D.verdicts || {}, changed = v.changed || 0, refused = v.refused || 0;
   var totalV = changed + refused;
   $("refused-n").textContent = refused;
-  $("refused-of").textContent = "of " + totalV + " research cluster" +
-    (totalV === 1 ? "" : "s") + " were refused";
+  $("refused-of").textContent = "trên " + totalV + " cụm nghiên cứu bị từ chối";
 
   if (totalV > 0) {
     var pctR = Math.round((refused / totalV) * 100);
     $("ratio").innerHTML =
       (refused ? '<span style="flex:' + refused + ';background:var(--step-2)">' +
-        (pctR >= 12 ? refused + " refused" : refused) + "</span>" : "") +
+        (pctR >= 12 ? refused + " bị từ chối" : refused) + "</span>" : "") +
       (changed ? '<span style="flex:' + changed + ';background:var(--cat-2)">' +
-        (100 - pctR >= 12 ? changed + " changed the book" : changed) + "</span>" : "");
+        (100 - pctR >= 12 ? changed + " đã sửa sách" : changed) + "</span>" : "");
     $("ratio-key").innerHTML =
-      '<span><i style="background:var(--step-2)"></i>Refused or monitored</span>' +
-      '<span><i style="background:var(--cat-2)"></i>Changed the manuscript</span>';
+      '<span><i style="background:var(--step-2)"></i>Bị từ chối / theo dõi</span>' +
+      '<span><i style="background:var(--cat-2)"></i>Đã sửa bản thảo</span>';
     $("verdict-read").textContent =
-      "Most research should not change a textbook, and the system is built to reach " +
-      "that conclusion cheaply. A cluster must clear an evidence floor — at least one " +
-      "scientific or independently verified source, and two independent sources — " +
-      "before a model is asked for an opinion at all.";
+      "Phần lớn nghiên cứu không nên làm thay đổi một cuốn giáo trình, và hệ thống " +
+      "được thiết kế để đi tới kết luận đó với chi phí thấp. Một cụm phải vượt ngưỡng " +
+      "bằng chứng — ít nhất một nguồn khoa học hoặc đã được kiểm chứng độc lập, cùng " +
+      "hai nguồn độc lập — trước khi bất kỳ model nào được hỏi ý kiến.";
   } else {
-    $("verdict-read").textContent = "No verdicts recorded yet.";
+    $("verdict-read").textContent = "Chưa ghi nhận verdict nào.";
   }
 
   /* ── tiles ────────────────────────────────────────────────────── */
   var llm = D.llm || {}, research = D.research || {}, clusters = D.clusters || {};
   var tiles = [
-    ["Research items", n(research.total), (research.by_source || []).length + " sources"],
-    ["Evidence", n(research.evidence_total), "attributed to a source"],
-    ["Clusters", n(clusters.total), "deduplicated themes"],
-    ["Book sections", n(book.sections), n(book.words) + " words"],
-    ["Concepts indexed", n(book.concepts), n(book.graph_edges) + " graph edges"],
-    ["Claims tracked", n(book.claims), n(book.claims_needing_citation) + " need a source"],
-    ["Bibliography", n(book.bib_entries), "verified entries"],
-    ["LLM requests", n(llm.requests), (llm.keys || 0) + " keys in pool"]
+    ["Mục nghiên cứu", n(research.total), (research.by_source || []).length + " nguồn"],
+    ["Bằng chứng", n(research.evidence_total), "đều truy được nguồn"],
+    ["Cụm chủ đề", n(clusters.total), "đã khử trùng lặp"],
+    ["Mục trong sách", n(book.sections), n(book.words) + " từ"],
+    ["Khái niệm đã index", n(book.concepts), n(book.graph_edges) + " cạnh đồ thị"],
+    ["Luận điểm theo dõi", n(book.claims), n(book.claims_needing_citation) + " cần nguồn"],
+    ["Thư mục", n(book.bib_entries), "mục đã kiểm chứng"],
+    ["Lượt gọi LLM", n(llm.requests), (llm.keys || 0) + " key trong pool"]
   ];
   $("tiles").innerHTML = tiles.map(function (t) {
     return '<div class="tile"><div class="k">' + esc(t[0]) + '</div><div class="v">' +
@@ -481,7 +506,7 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; color: var(--ink
   function bars(el, rows, colorFor) {
     if (!rows.length) {
       el.innerHTML = '<p style="color:var(--ink-faint);font-size:12.5px;margin:0">' +
-        "Nothing recorded yet.</p>";
+        "Chưa có dữ liệu.</p>";
       return;
     }
     var max = Math.max.apply(null, rows.map(function (r) { return r.value; })) || 1;
@@ -509,12 +534,12 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; color: var(--ink
 
   /* Evidence kinds are ordinal by weight: strongest darkest. */
   bars($("evidence"), (research.evidence || []).map(function (r) {
-    return { label: r.kind.replace(/_/g, " "), value: r.count };
+    return { label: VI_EVIDENCE[r.kind] || r.kind.replace(/_/g, " "), value: r.count };
   }), function (i, total) { return sequential(i, total); });
 
   /* Maturity is ordinal: speculative → mature. */
   bars($("maturity"), (clusters.maturity || []).map(function (r) {
-    return { label: r.level, value: r.count };
+    return { label: VI_MATURITY[r.level] || r.level, value: r.count };
   }), function (i, total) {
     var steps = ["var(--step-1)", "var(--step-2)", "var(--step-3)", "var(--step-4)", "var(--step-5)"];
     return steps[Math.min(i, steps.length - 1)];
@@ -534,11 +559,12 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; color: var(--ink
   function decisions(el, rows, changedStyle) {
     if (!rows.length) {
       el.innerHTML = '<p style="color:var(--ink-faint);font-size:12.5px;margin:0">' +
-        "None yet.</p>";
+        "Chưa có.</p>";
       return;
     }
     el.innerHTML = rows.map(function (r) {
-      var tags = '<span class="chip">' + esc(r.maturity || "—") + "</span>";
+      var tags = '<span class="chip" title="' + esc(r.maturity || "") + '">' +
+        esc(VI_MATURITY[r.maturity] || r.maturity || "—") + "</span>";
       if (r.decision) tags += '<span class="chip acc">' + esc(r.decision) + "</span>";
       if (r.scope) tags += '<span class="chip">' + esc(r.scope) + "</span>";
       return '<div class="decision' + (changedStyle ? " changed" : "") + '">' +
@@ -558,8 +584,9 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; color: var(--ink
   $("recent").innerHTML = (D.recent_research || []).slice(0, 14).map(function (r) {
     return "<tr><td><span class='chip'>" + esc(r.source) + "</span></td>" +
       "<td>" + esc(String(r.title || "").slice(0, 78)) + "</td>" +
-      "<td><span class='chip " + (lifeChip[r.lifecycle] || "") + "'>" +
-        esc(r.lifecycle) + "</span></td></tr>";
+      "<td><span class='chip " + (lifeChip[r.lifecycle] || "") + "' title='" +
+        esc(r.lifecycle) + "'>" +
+        esc(VI_LIFECYCLE[r.lifecycle] || r.lifecycle) + "</span></td></tr>";
   }).join("");
 
   function every(sec) {
@@ -574,18 +601,18 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; color: var(--ink
     return "<tr><td><code>" + esc(r.name) + "</code></td>" +
       "<td>" + every(r.interval_seconds) + "</td>" +
       "<td>" + esc(r.last_run_at ? String(r.last_run_at).slice(11, 16) + " UTC" : "—") + "</td>" +
-      "<td><span class='chip " + cls + "'>" + esc(r.last_status || "pending") +
+      "<td><span class='chip " + cls + "'>" + esc(r.last_status === "ok" ? "xong" : (r.last_status || "chờ")) +
       "</span></td></tr>";
   }).join("");
 
   /* ── footer ───────────────────────────────────────────────────── */
   var totals = D.totals || {};
   $("foot-left").textContent =
-    n(totals.events) + " logged events · " + n(totals.artifacts) +
-    " artifacts · " + n(totals.runs) + " runs";
+    n(totals.events) + " sự kiện · " + n(totals.artifacts) +
+    " artifact · " + n(totals.runs) + " lượt chạy";
   $("foot-right").innerHTML = llm.requests
-    ? n(llm.tokens_in) + " tokens in / " + n(llm.tokens_out) + " out · " +
-      (llm.disabled || 0) + " of " + (llm.keys || 0) + " keys disabled"
+    ? n(llm.tokens_in) + " token vào / " + n(llm.tokens_out) + " ra · " +
+      (llm.disabled || 0) + "/" + (llm.keys || 0) + " key bị vô hiệu"
     : "";
 })();
 </script>

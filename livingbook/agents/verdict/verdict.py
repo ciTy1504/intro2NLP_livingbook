@@ -101,8 +101,8 @@ class BookVerdictAgent(BaseAgent[Verdict]):
 
     def degraded_result(self) -> Verdict:
         return Verdict(decision=VerdictDecision.MONITOR,
-                       rationale="verdict agent degraded; keeping the cluster under "
-                                 "observation rather than acting on it")
+                       rationale="verdict agent bị suy giảm; giữ cụm này trong diện "
+                                 "theo dõi thay vì hành động trên nó")
 
     async def execute(self, *, cluster: ResearchCluster, **_: Any) -> Verdict:
         cfg = get_config()
@@ -115,11 +115,11 @@ class BookVerdictAgent(BaseAgent[Verdict]):
                 cluster_id=cluster.id,
                 decision=VerdictDecision.MONITOR,
                 rationale=(
-                    f"Below the evidence floor for a book change. {floor['reason']} "
-                    f"Evidence mix: {json.dumps(cluster.evidence_counts())}, "
-                    f"{cluster.independent_source_count()} independent source(s). "
-                    "Keeping under observation; it will be re-evaluated as evidence "
-                    "accumulates."),
+                    f"Chưa đủ ngưỡng bằng chứng để sửa sách. {floor['reason']} "
+                    f"Cơ cấu bằng chứng: {json.dumps(cluster.evidence_counts())}, "
+                    f"{cluster.independent_source_count()} nguồn độc lập. "
+                    "Vẫn giữ trong diện theo dõi và sẽ đánh giá lại khi có thêm "
+                    "bằng chứng."),
                 evidence_summary=cluster.evidence_counts(),
                 blocked_reason=floor["reason"],
                 confidence=0.0,
@@ -157,11 +157,11 @@ class BookVerdictAgent(BaseAgent[Verdict]):
 
         if scientific < need_scientific:
             return {"passes": False, "reason": (
-                f"Requires at least {need_scientific} scientific or independently "
-                f"verified source; found {scientific}.")}
+                f"Cần ít nhất {need_scientific} nguồn khoa học hoặc đã được kiểm chứng "
+                f"độc lập; hiện có {scientific}.")}
         if independent < need_total:
             return {"passes": False, "reason": (
-                f"Requires at least {need_total} independent sources; found "
+                f"Cần ít nhất {need_total} nguồn độc lập; hiện có "
                 f"{independent}.")}
         return {"passes": True, "reason": "", "scientific": scientific,
                 "independent": independent}
@@ -258,7 +258,11 @@ class BookVerdictAgent(BaseAgent[Verdict]):
             "  - name the specific book content affected, by node id\n"
             "  - explain why this maturity level warrants this much change\n"
             "  - state what a reader loses if the book stays as it is\n"
-            "A rationale that only restates the research is not a rationale.\n\n"
+            "A rationale that only restates the research is not a rationale.\n"
+            "Write `rationale` and every `change` description in VIETNAMESE - the book "
+            "and its maintainer are Vietnamese. Keep identifiers verbatim: node ids, "
+            "labels, decision names, evidence kinds, paper titles and author names are "
+            "not translated.\n\n"
             "=== WEIGH EVIDENCE BY KIND ===\n"
             "scientific and independent_verification carry real weight. adoption and "
             "practical show something works in practice. community and "

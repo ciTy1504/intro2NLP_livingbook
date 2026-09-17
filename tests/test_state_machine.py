@@ -239,3 +239,53 @@ def test_failed_can_reach_every_working_state(machine):
             f"FAILED cannot resume at {target.value}")
     assert State.COMPLETED not in TRANSITIONS[State.FAILED], (
         "a failed pipeline must never jump straight to COMPLETED")
+
+
+# ── scheduler behaviour ───────────────────────────────────────────────────
+
+
+def test_scheduler_starts_due_jobs_concurrently():
+    """A long job must not starve a short one.
+
+    Measured failure: `pipeline_tick`, scheduled every 15 minutes, had not run in
+    3.8 hours because `discovery` was still going and the tick ran jobs in sequence.
+    """
+    import asyncio as aio
+    import tempfile as tf
+    from livingbook.orchestrator.scheduler import Scheduler
+
+    with tf.TemporaryDirectory() as tmp:
+        store = Store(Path(tmp) / "sched.db")
+        sched = Scheduler(store)
+        order: list[str] = []
+
+        async def slow():
+            order.append("slow-start")
+            await aio.sleep(0.4)
+            order.append("slow-end")
+
+        async def quick():
+            order.append("quick")
+
+        sched.register("slow", slow, interval_seconds=60)
+        sched.register("quick", quick, interval_seconds=60)
+
+        async def run():
+            started = await sched.tick()
+            await aio.sleep(0.1)          # the slow job is still running
+            assert "quick" in order, "the quick job waited on the slow one"
+            await sched.drain(timeout=5)
+            return started
+
+        started = aio.run(run())
+        assert set(started) == {"slow", "quick"}
+        assert order.index("quick") < order.index("slow-end")
+        store.close()
+
+
+def test_retry_after_is_capped():
+    """A server asking for 19 hours is refusing, not pausing."""
+    from livingbook.tools.http import MAX_RETRY_AFTER
+
+    assert MAX_RETRY_AFTER <= 120, (
+        "an unbounded Retry-After parked a research agent for 19 hours")

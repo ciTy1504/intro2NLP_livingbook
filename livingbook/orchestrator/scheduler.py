@@ -32,6 +32,8 @@ class Scheduler:
         self.jobs: dict[str, JobFn] = {}
         self.intervals: dict[str, int] = {}
         self.owner = f"{socket.gethostname()}:{os.getpid()}"
+        #: Jobs running right now in this process, so a tick never starts one twice.
+        self._running: dict[str, asyncio.Task] = {}
 
     # -- registration ------------------------------------------------------
     def register(self, name: str, fn: JobFn, *, interval_seconds: int) -> None:
@@ -115,12 +117,44 @@ class Scheduler:
         return result
 
     async def tick(self) -> list[str]:
-        """Run everything currently due, in order. Returns the job names run."""
-        ran = []
-        for name in self.due():
+        """Start everything currently due, concurrently. Returns the job names started.
+
+        Concurrently, not in sequence. A discovery pass can run for hours — it fans out
+        to eight source agents, downloads PDFs and makes hundreds of model calls — and
+        running jobs one after another meant it starved everything behind it. Measured:
+        `pipeline_tick`, scheduled every 15 minutes, had not run in 3.8 hours because
+        `discovery` was still going.
+
+        Each job already holds its own lock, so a long job simply stays out of its own
+        way on the next tick while the short ones keep their cadence.
+        """
+        due = self.due()
+        if not due:
+            return []
+
+        started: list[str] = []
+        for name in due:
+            if name in self._running:
+                continue
+            task = asyncio.create_task(self._run_tracked(name))
+            self._running[name] = task
+            started.append(name)
+        return started
+
+    async def _run_tracked(self, name: str) -> None:
+        try:
             await self.run_job(name)
-            ran.append(name)
-        return ran
+        finally:
+            self._running.pop(name, None)
+
+    async def drain(self, timeout: float = 30.0) -> None:
+        """Wait for in-flight jobs, for a clean shutdown."""
+        tasks = list(self._running.values())
+        if not tasks:
+            return
+        done, pending = await asyncio.wait(tasks, timeout=timeout)
+        for t in pending:
+            t.cancel()
 
     async def run_forever(self, *, poll_seconds: int = 30) -> None:
         self.log.info(
@@ -128,9 +162,12 @@ class Scheduler:
         self._log_schedule()
         while True:
             try:
-                await self.tick()
+                started = await self.tick()
+                if started:
+                    self.log.debug(f"scheduler started: {', '.join(started)}")
             except asyncio.CancelledError:
                 self.log.info("scheduler stopping")
+                await self.drain()
                 raise
             except Exception as exc:
                 self.log.error(f"scheduler tick failed: {type(exc).__name__}: {exc}")
