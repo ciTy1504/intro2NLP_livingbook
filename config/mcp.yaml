@@ -1,0 +1,37 @@
+# External MCP servers to mount as Living Book tools.
+#
+# Their tools are discovered at startup and registered alongside the 62 native ones,
+# subject to the same capability tags and per-agent allowlists. An agent still only
+# sees a tool if it is in that agent's `tools` list in config/agents.yaml.
+#
+# When this is worth using: reaching something the system has no adapter for and never
+# will — a private paper database, a team wiki, an internal benchmark service.
+#
+# When it is NOT: replacing a native adapter. The native ones carry semantics a generic
+# MCP tool cannot. The arXiv adapter knows an author's claimed speedup is an
+# `author_claim` rather than a verified result; the GitHub adapter knows a star count
+# is adoption evidence, not scientific evidence. That structure is what the evidence
+# floor and maturity gate run on, so routing those sources through MCP would quietly
+# disable the system's main guardrails.
+#
+# Capabilities are declared per server, never inferred: a tool's name tells you nothing
+# about whether it writes. Omitting them gives the read-only default (FETCH).
+
+servers:
+  # Example — disabled. Copy and adapt.
+  #
+  # my-paper-db:
+  #   enabled: true
+  #   command: npx
+  #   args: ["-y", "@example/paper-db-mcp"]
+  #   env:
+  #     PAPER_DB_TOKEN: "set-in-secrets-env-instead"
+  #   capabilities: [SEARCH, FETCH]     # SEARCH FETCH SCHOLARLY FS_READ FS_WRITE ...
+  #   prefix: paperdb                   # tools register as paperdb_<tool_name>
+  #   only_tools: [search, get_paper]   # omit to register everything it offers
+
+  example-disabled:
+    enabled: false
+    command: echo
+    args: ["this entry exists to document the shape; it never runs"]
+    capabilities: [FETCH]

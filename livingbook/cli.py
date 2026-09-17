@@ -490,6 +490,30 @@ async def cmd_email(args: argparse.Namespace) -> int:
     return 0
 
 
+
+async def cmd_mcp(args: argparse.Namespace) -> int:
+    """MCP: serve the Living Book, or inspect external servers it can mount."""
+    if args.mcp_command == "serve":
+        from livingbook.mcp.server import main as serve
+        serve()
+        return 0
+
+    if args.mcp_command == "tools":
+        from livingbook.mcp.server import mcp as server
+        listed = await server.list_tools()
+        _h(f"Exposed over MCP ({len(listed)} tools)")
+        for t in listed:
+            print(f"  {t.name:22s} {(t.description or '').splitlines()[0][:72]}")
+        return 0
+
+    if args.mcp_command == "external":
+        from livingbook.mcp import probe_servers
+        _print(await probe_servers())
+        return 0
+
+    return 0
+
+
 # ── argument parsing ──────────────────────────────────────────────────────
 
 
@@ -590,6 +614,12 @@ def build_parser() -> argparse.ArgumentParser:
     em_sub.add_parser("status")
     em_sub.add_parser("test", help="send a test message to the configured recipients")
 
+    mcpp = sub.add_parser("mcp", help="Model Context Protocol server and client")
+    mcp_sub = mcpp.add_subparsers(dest="mcp_command", required=True)
+    mcp_sub.add_parser("serve", help="run the MCP server on stdio (clients spawn this)")
+    mcp_sub.add_parser("tools", help="list what the server exposes")
+    mcp_sub.add_parser("external", help="connect configured external MCP servers")
+
     return p
 
 
@@ -599,6 +629,7 @@ COMMANDS = {
     "daemon": cmd_daemon, "status": cmd_status, "approve": cmd_approve,
     "reject": cmd_reject, "qa": cmd_qa, "llm": cmd_llm, "kb": cmd_kb,
     "git": cmd_git, "trace": cmd_trace, "visual": cmd_visual, "email": cmd_email,
+    "mcp": cmd_mcp,
 }
 
 
