@@ -116,3 +116,38 @@ def test_no_secrets_in_manuscript(cfg):
             if pattern.search(text):
                 offenders.append(path.name)
     assert not offenders, f"credential-shaped strings found in: {offenders}"
+
+
+# -- link checking -----------------------------------------------------------
+#
+# The link report is only useful if a line in it means something is wrong. Two
+# classes of false positive made it useless in practice, and both are regressions
+# worth guarding: example URLs printed in code listings, and hosts that refuse an
+# automated probe on a URL that opens fine in a browser.
+
+def test_example_urls_are_not_treated_as_links():
+    from livingbook.tools.book import _is_illustrative
+
+    # The vLLM server a reader starts in chapter 2.6.
+    assert _is_illustrative("http://localhost:8000/v1")
+    assert _is_illustrative("http://127.0.0.1:8080/generate")
+    assert _is_illustrative("https://api.example.com/v1/chat")
+    assert _is_illustrative("http://192.168.1.10:11434/api")
+
+    assert not _is_illustrative("https://aclanthology.org/D19-1410")
+    assert not _is_illustrative("https://doi.org/10.18653/v1/2023.findings-emnlp.655")
+
+
+def test_bot_refusal_is_not_reported_as_a_broken_link():
+    from livingbook.tools.book import _is_bot_refusal
+    from livingbook.tools.registry import ToolUnavailable
+
+    # Wikipedia and openai.com 403 an automated HEAD; aclanthology.org and doi.org
+    # drop the connection. None of these mean the citation is dead.
+    assert _is_bot_refusal(ToolUnavailable("en.wikipedia.org: HTTP 403 (blocked)"))
+    assert _is_bot_refusal(ToolUnavailable(
+        "doi.org: RemoteProtocolError: Server disconnected without sending a response."))
+
+    # A genuinely missing page still has to be reported.
+    assert not _is_bot_refusal(ToolUnavailable("example.org: HTTP 404"))
+    assert not _is_bot_refusal(None)

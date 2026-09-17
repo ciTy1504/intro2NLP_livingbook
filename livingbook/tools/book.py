@@ -20,6 +20,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from ..config import get_config
 from ..knowledge.bib import Bibliography
@@ -62,6 +63,33 @@ def _find_binary(name: str) -> str | None:
     return None
 
 
+def _build_env(*binaries: str | None) -> dict[str, str]:
+    """PATH the LaTeX toolchain can actually call through.
+
+    Two hops have to work, and neither uses the absolute path _find_binary() resolves.
+    xelatex spawns `latexminted` by name, and `latexminted.exe` is a MiKTeX shim that
+    in turn spawns bare `python` — which on Windows hits the Microsoft Store alias stub
+    ("Python was not found") unless the real interpreter's directory comes first.
+
+    The symptom was a build that looked fine: 337 pages, no undefined references, and
+    every code listing silently unhighlighted behind `Package minted Error: minted
+    executable is unavailable`. Putting sys.executable's directory and the TeX binary
+    directory on the child's PATH makes the build independent of how the process was
+    started, which is the point — the daemon inherits whatever PATH its launcher had.
+    """
+    import os
+    import sys
+    env = dict(os.environ)
+    dirs = [str(Path(sys.executable).parent)]
+    dirs += [str(Path(b).parent) for b in binaries if b]
+    seen: list[str] = []
+    for d in dirs:
+        if d not in seen:
+            seen.append(d)
+    env["PATH"] = os.pathsep.join(seen + [env.get("PATH", "")])
+    return env
+
+
 @tool("build_book", [Capability.BUILD],
       description="Compile the manuscript with XeLaTeX in a disposable workspace.")
 async def build_book(
@@ -100,9 +128,11 @@ async def build_book(
         passes: list[dict[str, Any]] = []
         log_text = ""
 
+        env = _build_env(xelatex, _find_binary("latexminted"))
+
         async def run(cmd: list[str], label: str) -> dict[str, Any]:
             proc = await asyncio.create_subprocess_exec(
-                *cmd, cwd=str(workspace),
+                *cmd, cwd=str(workspace), env=env,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
             )
             try:
@@ -332,6 +362,30 @@ async def check_figures() -> dict[str, Any]:
     }
 
 
+#: Hosts that appear in the book as examples, not as links. `localhost:8000` is the
+#: vLLM server a reader starts in chapter 2.6; reporting it as a broken link buries
+#: the real ones. RFC 2606 reserves example.com/.invalid for exactly this purpose.
+ILLUSTRATIVE_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "::1",
+                      "example.com", "example.org", "example.net",
+                      "your-domain.com", "api.example.com")
+
+
+#: Signatures of a host declining to be probed rather than a URL being gone.
+_BOT_REFUSAL = ("HTTP 403", "HTTP 405", "HTTP 429", "blocked",
+                "RemoteProtocolError", "Server disconnected")
+
+
+def _is_bot_refusal(exc: Exception | None) -> bool:
+    return exc is not None and any(m in str(exc) for m in _BOT_REFUSAL)
+
+
+def _is_illustrative(url: str) -> bool:
+    host = urlparse(url).hostname or ""
+    return (host in ILLUSTRATIVE_HOSTS
+            or host.endswith(".local") or host.endswith(".invalid")
+            or host.startswith("192.168.") or host.startswith("10."))
+
+
 @tool("check_links", [Capability.FS_READ, Capability.FETCH],
       description="Check URLs in the manuscript and bibliography resolve.")
 async def check_links(
@@ -352,23 +406,52 @@ async def check_links(
         for m in url_re.finditer(cfg.bib_path.read_text(encoding="utf-8", errors="replace")):
             urls.setdefault(m.group(0).rstrip(".,;"), []).append("references.bib")
 
-    targets = list(urls)[:limit]
+    skipped = [u for u in urls if _is_illustrative(u)]
+    targets = [u for u in urls if u not in set(skipped)][:limit]
     sem = asyncio.Semaphore(concurrency)
     broken: list[dict[str, Any]] = []
+    #: Reachable, but the host will not answer an automated probe. Reported apart from
+    #: `broken` so a real 404 is not lost among them.
+    refused: list[dict[str, Any]] = []
+
+    async def probe(method: str, url: str):
+        return await request(method, url, timeout=timeout, retries=1,
+                             browser_ua=True, polite=False)
 
     async def check(url: str) -> None:
         async with sem:
+            # HEAD first because it is cheap, then GET — but the GET has to run when
+            # the HEAD *raised*, not only when it returned >= 400. request() turns a
+            # 403 into ToolUnavailable and never returns it, so the old fallback was
+            # unreachable for exactly the hosts that need it: aclanthology.org and
+            # doi.org disconnect on HEAD, and Wikipedia 403s it. Every one of those
+            # URLs opens fine in a browser.
+            first: Exception | None = None
             try:
-                resp = await request("HEAD", url, timeout=timeout, retries=1,
-                                     browser_ua=True, polite=False)
-                if resp.status_code >= 400:
-                    resp = await request("GET", url, timeout=timeout, retries=1,
-                                         browser_ua=True, polite=False)
-                if resp.status_code >= 400:
-                    broken.append({"url": url, "status": resp.status_code,
-                                   "in": sorted(set(urls[url]))[:3]})
+                resp = await probe("HEAD", url)
+                if resp.status_code < 400:
+                    return
             except Exception as exc:
-                broken.append({"url": url, "status": f"{type(exc).__name__}",
+                first = exc
+            try:
+                resp = await probe("GET", url)
+            except Exception as exc:
+                # A host that refuses to be probed is telling us about its bot policy,
+                # not about the link. Flagging it trains the reader to ignore this
+                # report, which is worse than not running it.
+                if _is_bot_refusal(exc) or _is_bot_refusal(first):
+                    refused.append({"url": url, "why": str(exc)[:120],
+                                    "in": sorted(set(urls[url]))[:3]})
+                    return
+                broken.append({"url": url,
+                               "status": f"{type(exc).__name__}: {exc}"[:160],
+                               "in": sorted(set(urls[url]))[:3]})
+                return
+            if resp.status_code in (403, 405, 429):
+                refused.append({"url": url, "why": f"HTTP {resp.status_code}",
+                                "in": sorted(set(urls[url]))[:3]})
+            elif resp.status_code >= 400:
+                broken.append({"url": url, "status": resp.status_code,
                                "in": sorted(set(urls[url]))[:3]})
 
     await asyncio.gather(*(check(u) for u in targets))
@@ -377,6 +460,8 @@ async def check_links(
         "ok": not broken,
         "checked": len(targets),
         "total_urls": len(urls),
+        "skipped_illustrative": sorted(skipped),
+        "refused_probe": sorted(refused, key=lambda d: str(d["url"])),
         "broken": sorted(broken, key=lambda d: str(d["url"])),
     }
 
