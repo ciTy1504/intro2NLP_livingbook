@@ -20,8 +20,79 @@ from ..state.store import Store, get_store
 
 JobFn = Callable[[], Awaitable[Any]]
 
-#: A job whose lock is older than this is assumed to have died with its process.
+#: Fallback only: a job locked by a process we cannot ask about is assumed dead after
+#: this long. Used when the lock belongs to another host, where the PID means nothing
+#: to us. On this host we check the PID directly, which is exact.
 STALE_LOCK_SECONDS = 3 * 3600
+
+
+def _pid_is_alive(pid: int) -> bool:
+    """Is this PID running right now? Conservative: unsure means yes.
+
+    Deliberately not os.kill(pid, 0). On Windows CPython routes any signal other than
+    CTRL_C_EVENT/CTRL_BREAK_EVENT to TerminateProcess, so the POSIX idiom for "does
+    this process exist" would kill the process it asked about.
+    """
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        ERROR_INVALID_PARAMETER = 87
+        STILL_ACTIVE = 259
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            # Access denied means it exists and belongs to someone else — still alive.
+            return kernel32.GetLastError() != ERROR_INVALID_PARAMETER
+        try:
+            # OpenProcess succeeding is not enough. While anyone still holds a handle
+            # to an exited process — a parent that has not reaped its child — the PID
+            # stays openable, so the handle alone reports a dead process as alive.
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True
+            # A process that genuinely exits with 259 is indistinguishable from a
+            # running one; Windows offers no way to tell, and "alive" is the safe
+            # reading — we would rather skip a job than run it twice.
+            return code.value == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True
+    return True
+
+
+def _owner_is_gone(lock_owner: str | None) -> bool:
+    """True when the lock belongs to a dead process on this machine.
+
+    A daemon killed mid-job leaves `running = 1` behind, and a purely time-based
+    staleness window then blocks its own replacement. Measured: a restart sat idle
+    because `synthesis` and `pipeline_tick` were still held by PID 6264, which had
+    not existed since the previous process was killed seconds earlier — three hours
+    of nothing, on a system whose whole point is running unattended overnight.
+
+    Only this host's PIDs are checked. Another machine's PID number tells us nothing,
+    so those fall back to the time window.
+    """
+    if not lock_owner:
+        return False
+    host, _, pid_text = lock_owner.rpartition(":")
+    if host != socket.gethostname():
+        return False
+    try:
+        pid = int(pid_text)
+    except ValueError:
+        return False
+    if pid == os.getpid():
+        return False
+    return not _pid_is_alive(pid)
 
 
 class Scheduler:
@@ -63,13 +134,14 @@ class Scheduler:
     def due(self) -> list[str]:
         now = _iso(datetime.now(timezone.utc))
         rows = self.store.query(
-            "SELECT name, running, lock_at FROM scheduled_jobs "
+            "SELECT name, running, lock_at, lock_owner FROM scheduled_jobs "
             "WHERE next_run_at IS NULL OR next_run_at <= ? ORDER BY next_run_at", (now,))
         out = []
         for r in rows:
             if r["name"] not in self.jobs:
                 continue
-            if r["running"] and not _lock_is_stale(r["lock_at"]):
+            if (r["running"] and not _lock_is_stale(r["lock_at"])
+                    and not _owner_is_gone(r["lock_owner"])):
                 continue
             out.append(r["name"])
         return out
@@ -78,10 +150,14 @@ class Scheduler:
         """Claim a job. Returns False if another process already holds it."""
         with self.store.transaction() as conn:
             row = conn.execute(
-                "SELECT running, lock_at FROM scheduled_jobs WHERE name = ?",
+                "SELECT running, lock_at, lock_owner FROM scheduled_jobs WHERE name = ?",
                 (name,)).fetchone()
-            if row and row["running"] and not _lock_is_stale(row["lock_at"]):
+            if (row and row["running"] and not _lock_is_stale(row["lock_at"])
+                    and not _owner_is_gone(row["lock_owner"])):
                 return False
+            if row and row["running"] and _owner_is_gone(row["lock_owner"]):
+                self.log.info(
+                    f"scheduler: reclaiming {name} from dead owner {row['lock_owner']}")
             conn.execute(
                 "UPDATE scheduled_jobs SET running = 1, lock_owner = ?, lock_at = ? "
                 "WHERE name = ?",

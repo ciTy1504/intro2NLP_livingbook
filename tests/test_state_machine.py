@@ -289,3 +289,64 @@ def test_retry_after_is_capped():
 
     assert MAX_RETRY_AFTER <= 120, (
         "an unbounded Retry-After parked a research agent for 19 hours")
+
+
+# -- lock reclaim ------------------------------------------------------------
+#
+# A daemon killed mid-job leaves running=1 behind. With only a time-based staleness
+# window, its own replacement then sat idle for three hours. These pin the exact
+# rule: reclaim a lock whose owning PID is gone on this host, and never one that
+# might still be held.
+
+def test_a_lock_from_a_dead_process_on_this_host_is_reclaimed():
+    import socket
+
+    from livingbook.orchestrator.scheduler import _owner_is_gone
+
+    import subprocess
+    import sys
+
+    # A PID that has certainly exited: start one, wait for it, then ask.
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait(timeout=10)
+    assert _owner_is_gone(f"{socket.gethostname()}:{proc.pid}") is True
+
+    # And one the kernel never assigns.
+    assert _owner_is_gone(f"{socket.gethostname()}:999999999") is True
+
+
+def test_a_lock_that_might_still_be_held_is_never_stolen():
+    import os
+    import socket
+
+    from livingbook.orchestrator.scheduler import _owner_is_gone
+
+    host = socket.gethostname()
+    # Our own live process.
+    assert _owner_is_gone(f"{host}:{os.getpid()}") is False
+    # Another machine's PID number means nothing here — fall back to the time window.
+    assert _owner_is_gone("some-other-host:6264") is False
+    # Nothing recorded, or unparseable.
+    assert _owner_is_gone(None) is False
+    assert _owner_is_gone("") is False
+    assert _owner_is_gone("weird-value-without-a-pid") is False
+
+
+def test_probing_a_pid_does_not_kill_it():
+    """os.kill(pid, 0) would TerminateProcess on Windows. This must not."""
+    import os
+    import subprocess
+    import sys
+
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        from livingbook.orchestrator.scheduler import _pid_is_alive
+
+        assert _pid_is_alive(proc.pid) is True
+        assert _pid_is_alive(proc.pid) is True          # probing twice is still safe
+        assert proc.poll() is None, "the probe terminated the process it asked about"
+    finally:
+        proc.kill()
+        proc.wait(timeout=10)
+
+    assert _pid_is_alive(os.getpid()) is True
