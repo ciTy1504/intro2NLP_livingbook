@@ -562,6 +562,22 @@ async def cmd_stuck(args: argparse.Namespace) -> int:
 # ── argument parsing ──────────────────────────────────────────────────────
 
 
+async def cmd_dashboard(args: argparse.Namespace) -> int:
+    """Build the self-contained status page from the live database."""
+    from livingbook.dashboard import build
+
+    out = build(Path(args.output) if args.output else None)
+    print(f"{out}  ({out.stat().st_size:,} bytes)")
+    print("\nIt embeds its own data, so it needs no server:")
+    print(f'  open locally : start "" "{out}"')
+    print("  firebase     : firebase deploy --only hosting")
+    if args.open:
+        import webbrowser
+        webbrowser.open(out.as_uri())
+    return 0
+
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="livingbook",
@@ -659,6 +675,10 @@ def build_parser() -> argparse.ArgumentParser:
     em_sub.add_parser("status")
     em_sub.add_parser("test", help="send a test message to the configured recipients")
 
+    dash = sub.add_parser("dashboard", help="build the self-contained status page")
+    dash.add_argument("--output", help="where to write it (default dashboard/index.html)")
+    dash.add_argument("--open", action="store_true", help="open it in a browser")
+
     st = sub.add_parser("stuck", help="pipelines needing an operator; retry or inspect")
     st.add_argument("--retry", metavar="PIPELINE_ID", help="put this pipeline back on the path")
     st.add_argument("--from-state", help="state to resume from (default: where it was)")
@@ -683,7 +703,7 @@ COMMANDS = {
     "daemon": cmd_daemon, "status": cmd_status, "approve": cmd_approve,
     "reject": cmd_reject, "qa": cmd_qa, "llm": cmd_llm, "kb": cmd_kb,
     "git": cmd_git, "trace": cmd_trace, "visual": cmd_visual, "email": cmd_email,
-    "mcp": cmd_mcp, "stuck": cmd_stuck,
+    "mcp": cmd_mcp, "stuck": cmd_stuck, "dashboard": cmd_dashboard,
 }
 
 

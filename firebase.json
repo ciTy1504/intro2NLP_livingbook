@@ -1,0 +1,15 @@
+{
+  "hosting": {
+    "public": "dashboard",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**", "template.html"],
+    "headers": [
+      {
+        "source": "/index.html",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, max-age=0" }
+        ]
+      }
+    ],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+  }
+}

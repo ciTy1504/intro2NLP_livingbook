@@ -1,0 +1,591 @@
+<title>Living Book Console</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+
+<style>
+:root {
+  color-scheme: light;
+
+  /* Neutrals biased cool, toward the blue accent, so the greys read as chosen. */
+  --ground:        #f4f6f9;
+  --surface:       #ffffff;
+  --surface-sunk:  #eef1f6;
+  --line:          #dde3ec;
+  --line-strong:   #c3ccdb;
+
+  --ink:           #14161a;
+  --ink-soft:      #414a58;
+  --ink-muted:     #6b7585;
+  --ink-faint:     #9aa3b2;
+
+  --accent:        #2a78d6;
+  --accent-soft:   #e8f0fc;
+
+  /* Ordinal ramp (validated: monotone L, light end 2.06:1 on surface). */
+  --step-1:        #86b6ef;
+  --step-2:        #5598e7;
+  --step-3:        #2a78d6;
+  --step-4:        #184f95;
+  --step-5:        #0d366b;
+
+  /* Categorical slots 1–3 (validated all-pairs, both modes). */
+  --cat-1:         #2a78d6;
+  --cat-2:         #eb6834;
+  --cat-3:         #1baf7a;
+
+  /* Status is reserved and never reused as a series colour. */
+  --ok:            #1a7f4b;
+  --warn:          #b06a00;
+  --bad:           #c5322f;
+  --ok-bg:         #e6f4ec;
+  --warn-bg:       #fdf1dd;
+  --bad-bg:        #fbe9e8;
+
+  --radius:        10px;
+  --shadow:        0 1px 2px rgba(20,22,26,.05), 0 1px 12px rgba(20,22,26,.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground:       #101216;
+    --surface:      #191c22;
+    --surface-sunk: #14171c;
+    --line:         #272c35;
+    --line-strong:  #39414f;
+
+    --ink:          #f2f4f8;
+    --ink-soft:     #c3cad6;
+    --ink-muted:    #8d97a6;
+    --ink-faint:    #626c7c;
+
+    --accent:       #5c9df0;
+    --accent-soft:  #1b2942;
+
+    --step-1:       #184f95;
+    --step-2:       #256abf;
+    --step-3:       #3987e5;
+    --step-4:       #6da7ec;
+    --step-5:       #9ec5f4;
+
+    --cat-1:        #3987e5;
+    --cat-2:        #d95926;
+    --cat-3:        #199e70;
+
+    --ok:           #4cb982;
+    --warn:         #d9a441;
+    --bad:          #e66767;
+    --ok-bg:        #14291f;
+    --warn-bg:      #2c2415;
+    --bad-bg:       #2e1a1a;
+
+    --shadow:       0 1px 2px rgba(0,0,0,.4), 0 1px 12px rgba(0,0,0,.25);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground:       #101216;
+  --surface:      #191c22;
+  --surface-sunk: #14171c;
+  --line:         #272c35;
+  --line-strong:  #39414f;
+  --ink:          #f2f4f8;
+  --ink-soft:     #c3cad6;
+  --ink-muted:    #8d97a6;
+  --ink-faint:    #626c7c;
+  --accent:       #5c9df0;
+  --accent-soft:  #1b2942;
+  --step-1:       #184f95;
+  --step-2:       #256abf;
+  --step-3:       #3987e5;
+  --step-4:       #6da7ec;
+  --step-5:       #9ec5f4;
+  --cat-1:        #3987e5;
+  --cat-2:        #d95926;
+  --cat-3:        #199e70;
+  --ok:           #4cb982;
+  --warn:         #d9a441;
+  --bad:          #e66767;
+  --ok-bg:        #14291f;
+  --warn-bg:      #2c2415;
+  --bad-bg:       #2e1a1a;
+  --shadow:       0 1px 2px rgba(0,0,0,.4), 0 1px 12px rgba(0,0,0,.25);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-inline: 20px;
+  padding-block: 28px 64px;
+}
+
+/* ── header ─────────────────────────────────────────────────────────── */
+
+.masthead { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end;
+            justify-content: space-between; margin-bottom: 8px; }
+.brand h1 { font-size: 21px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+.brand .book { font-family: "IBM Plex Serif", Georgia, serif; font-style: italic;
+               color: var(--ink-muted); font-size: 14px; margin: 3px 0 0; }
+.meta { display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+        font-size: 12px; color: var(--ink-muted); }
+.meta code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11.5px; }
+.themer { border: 1px solid var(--line-strong); background: var(--surface);
+          color: var(--ink-soft); border-radius: 7px; padding: 5px 11px;
+          font: inherit; font-size: 12px; cursor: pointer; }
+.themer:hover { border-color: var(--accent); color: var(--accent); }
+.themer:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── attention strip ────────────────────────────────────────────────── */
+
+.strip { display: flex; gap: 10px; align-items: flex-start; padding: 13px 16px;
+         border-radius: var(--radius); margin: 22px 0 26px; font-size: 13.5px; }
+.strip.clear { background: var(--ok-bg); color: var(--ok);
+               border: 1px solid color-mix(in srgb, var(--ok) 28%, transparent); }
+.strip.attn  { background: var(--warn-bg); color: var(--warn);
+               border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent); }
+.strip strong { font-weight: 600; }
+.strip ul { margin: 6px 0 0; padding-left: 18px; }
+.strip li { margin-bottom: 3px; }
+.strip code { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+
+/* ── the headline ───────────────────────────────────────────────────── */
+
+.headline { background: var(--surface); border: 1px solid var(--line);
+            border-radius: var(--radius); box-shadow: var(--shadow);
+            padding: 26px 26px 22px; margin-bottom: 20px; }
+.headline .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .09em;
+                     text-transform: uppercase; color: var(--ink-faint); margin: 0 0 12px; }
+.verdict-figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; }
+.verdict-figure .big { font-size: 54px; font-weight: 600; line-height: 1;
+                       letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.verdict-figure .of { font-size: 17px; color: var(--ink-muted); }
+.headline p.read { margin: 14px 0 0; max-width: 62ch; color: var(--ink-soft); }
+
+.ratio { display: flex; height: 26px; border-radius: 6px; overflow: hidden;
+         margin-top: 18px; background: var(--surface-sunk); gap: 2px; }
+.ratio span { display: flex; align-items: center; justify-content: center;
+              font-size: 11px; font-weight: 600; color: #fff; white-space: nowrap;
+              padding-inline: 8px; }
+.ratio-key { display: flex; gap: 18px; margin-top: 9px; flex-wrap: wrap;
+             font-size: 12px; color: var(--ink-muted); }
+.ratio-key i { width: 9px; height: 9px; border-radius: 2px; display: inline-block;
+               margin-right: 6px; }
+
+/* ── tiles ──────────────────────────────────────────────────────────── */
+
+/* Four across, so eight tiles fill two complete rows rather than leaving two
+   stranded in a third. */
+.tiles { display: grid; gap: 12px; margin-bottom: 26px;
+         grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+.tile { background: var(--surface); border: 1px solid var(--line);
+        border-radius: var(--radius); padding: 14px 15px; }
+.tile .k { font-size: 11px; font-weight: 600; letter-spacing: .06em;
+           text-transform: uppercase; color: var(--ink-faint); }
+.tile .v { font-size: 25px; font-weight: 600; letter-spacing: -.02em; margin-top: 5px;
+           font-variant-numeric: tabular-nums; }
+.tile .s { font-size: 12px; color: var(--ink-muted); margin-top: 1px; }
+
+/* ── panels ─────────────────────────────────────────────────────────── */
+
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+        margin-bottom: 16px; }
+.panel { background: var(--surface); border: 1px solid var(--line);
+         border-radius: var(--radius); padding: 18px 19px 19px; box-shadow: var(--shadow); }
+.panel > h2 { font-size: 13px; font-weight: 600; margin: 0 0 3px; letter-spacing: -.005em; }
+.panel > .sub { font-size: 12px; color: var(--ink-muted); margin: 0 0 15px; max-width: 54ch; }
+
+/* ── bar chart (one scale, direct-labelled) ─────────────────────────── */
+
+.bars { display: flex; flex-direction: column; gap: 7px; }
+.bar-row { display: grid; grid-template-columns: 152px 1fr auto; gap: 10px;
+           align-items: center; }
+.bar-row .name { font-size: 12.5px; color: var(--ink-soft); text-align: right;
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-row .track { background: var(--surface-sunk); border-radius: 4px; height: 17px;
+                  position: relative; overflow: hidden; }
+.bar-row .fill { height: 100%; border-radius: 0 4px 4px 0; min-width: 3px;
+                 transition: width .5s cubic-bezier(.22,.61,.36,1); }
+.bar-row .num { font-size: 12.5px; font-weight: 600; color: var(--ink);
+                font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; }
+.bar-row .name code { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; }
+
+/* ── tables ─────────────────────────────────────────────────────────── */
+
+.tbl-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th { text-align: left; font-size: 10.5px; font-weight: 600; letter-spacing: .07em;
+     text-transform: uppercase; color: var(--ink-faint); padding: 0 10px 7px 0;
+     border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line);
+     color: var(--ink-soft); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; color: var(--ink);
+         font-weight: 600; }
+
+.chip { display: inline-block; font-family: "IBM Plex Mono", monospace; font-size: 10.5px;
+        font-weight: 500; padding: 2px 7px; border-radius: 5px; white-space: nowrap;
+        background: var(--surface-sunk); color: var(--ink-soft);
+        border: 1px solid var(--line); }
+.chip.ok   { background: var(--ok-bg);   color: var(--ok);   border-color: transparent; }
+.chip.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.chip.bad  { background: var(--bad-bg);  color: var(--bad);  border-color: transparent; }
+.chip.acc  { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+
+/* ── decisions ──────────────────────────────────────────────────────── */
+
+.decision { border-left: 3px solid var(--line-strong); padding: 2px 0 2px 13px;
+            margin-bottom: 15px; }
+.decision:last-child { margin-bottom: 0; }
+.decision.changed { border-left-color: var(--accent); }
+.decision .t { font-weight: 600; color: var(--ink); font-size: 13px; }
+.decision .why { color: var(--ink-muted); margin-top: 4px; font-size: 12.5px;
+                 max-width: 66ch; }
+.decision .tags { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ── footer ─────────────────────────────────────────────────────────── */
+
+.foot { margin-top: 30px; padding-top: 16px; border-top: 1px solid var(--line);
+        font-size: 12px; color: var(--ink-faint); display: flex; gap: 16px;
+        flex-wrap: wrap; justify-content: space-between; }
+.foot code { font-family: "IBM Plex Mono", monospace; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+@media (max-width: 560px) {
+  .bar-row { grid-template-columns: 104px 1fr auto; }
+  .bar-row .name { font-size: 11.5px; }
+  .verdict-figure .big { font-size: 42px; }
+}
+</style>
+
+<script id="livingbook-data" type="application/json">{}</script>
+
+<div class="wrap">
+  <header class="masthead">
+    <div class="brand">
+      <h1>Living Book Console</h1>
+      <p class="book" id="book-title">—</p>
+    </div>
+    <div class="meta">
+      <span id="generated">—</span>
+      <button class="themer" id="themer" type="button">Theme</button>
+    </div>
+  </header>
+
+  <div class="strip clear" id="strip"><span>Loading…</span></div>
+
+  <section class="headline">
+    <p class="eyebrow">What the system decided</p>
+    <div class="verdict-figure">
+      <span class="big" id="refused-n">—</span>
+      <span class="of" id="refused-of">of — research clusters were refused</span>
+    </div>
+    <div class="ratio" id="ratio"></div>
+    <div class="ratio-key" id="ratio-key"></div>
+    <p class="read" id="verdict-read"></p>
+  </section>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Where the research came from</h2>
+      <p class="sub">Eight source agents, each with its own semantics. One adapter per
+        source, not one generic scraper.</p>
+      <div class="bars" id="sources"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Evidence mix</h2>
+      <p class="sub">Ordered by the weight the system gives it. A source may only emit
+        the kinds it can justify — GitHub cannot produce scientific evidence.</p>
+      <div class="bars" id="evidence"></div>
+    </section>
+  </div>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Research maturity</h2>
+      <p class="sub">Computed from the evidence mix, never from recency. Maturity caps
+        what a verdict is allowed to decide.</p>
+      <div class="bars" id="maturity"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Pipeline state</h2>
+      <p class="sub">Every change moves through a persisted state machine. A crash
+        resumes where it stopped.</p>
+      <div class="bars" id="pipelines"></div>
+    </section>
+  </div>
+
+  <section class="panel" id="panel-changes" style="margin-bottom:16px">
+    <h2>Changes the system decided to make</h2>
+    <p class="sub">Each cleared the evidence floor and the maturity gate before any
+      model was asked for an opinion.</p>
+    <div id="changes"></div>
+  </section>
+
+  <section class="panel" id="panel-refusals" style="margin-bottom:16px">
+    <h2>Research it refused to act on</h2>
+    <p class="sub">The default answer is no change. These are kept under observation and
+      re-evaluated as evidence accumulates.</p>
+    <div id="refusals"></div>
+  </section>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Recent research</h2>
+      <p class="sub">Newest first, with the lifecycle the system assigned.</p>
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>Source</th><th>Title</th><th>State</th></tr></thead>
+        <tbody id="recent"></tbody>
+      </table></div>
+    </section>
+
+    <section class="panel">
+      <h2>Schedule</h2>
+      <p class="sub">Due times live in the database, so a restart does not reset them and
+        a missed window fires on next start.</p>
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>Job</th><th>Every</th><th>Last</th><th>Status</th></tr></thead>
+        <tbody id="schedule"></tbody>
+      </table></div>
+    </section>
+  </div>
+
+  <footer class="foot">
+    <span id="foot-left">—</span>
+    <span id="foot-right">—</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var D = {};
+  try {
+    D = JSON.parse(document.getElementById("livingbook-data").textContent || "{}");
+  } catch (e) { D = {}; }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  };
+  var n = function (v) { return (v || 0).toLocaleString("en-US"); };
+
+  /* ── theme toggle ─────────────────────────────────────────────── */
+  (function () {
+    var btn = $("themer"), root = document.documentElement;
+    var saved = null;
+    try { saved = localStorage.getItem("lb-theme"); } catch (e) {}
+    if (saved === "dark" || saved === "light") root.setAttribute("data-theme", saved);
+    btn.addEventListener("click", function () {
+      var now = root.getAttribute("data-theme");
+      var dark = now ? now === "dark"
+                     : window.matchMedia("(prefers-color-scheme: dark)").matches;
+      var next = dark ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem("lb-theme", next); } catch (e) {}
+    });
+  })();
+
+  /* ── header ───────────────────────────────────────────────────── */
+  var book = D.book || {};
+  $("book-title").textContent = book.title || "—";
+  if (D.generated_at) {
+    $("generated").textContent = "snapshot " + D.generated_at.replace("T", " ").replace("+00:00", " UTC");
+  }
+
+  /* ── attention strip ──────────────────────────────────────────── */
+  var stuck = (D.pipelines && D.pipelines.stuck) || [];
+  var strip = $("strip");
+  if (stuck.length) {
+    strip.className = "strip attn";
+    strip.innerHTML = "<div><strong>" + stuck.length + " pipeline" +
+      (stuck.length > 1 ? "s need" : " needs") + " an operator</strong><ul>" +
+      stuck.map(function (p) {
+        return "<li><code>" + esc(p.id) + "</code> — " + esc(p.state) +
+          (p.title ? " · " + esc(String(p.title).slice(0, 62)) : "") + "</li>";
+      }).join("") + "</ul></div>";
+  } else {
+    strip.className = "strip clear";
+    strip.innerHTML = "<span><strong>Nothing needs you.</strong> " +
+      "Every pipeline is either moving, under observation, or finished.</span>";
+  }
+
+  /* ── the headline: how much it refused ────────────────────────── */
+  var v = D.verdicts || {}, changed = v.changed || 0, refused = v.refused || 0;
+  var totalV = changed + refused;
+  $("refused-n").textContent = refused;
+  $("refused-of").textContent = "of " + totalV + " research cluster" +
+    (totalV === 1 ? "" : "s") + " were refused";
+
+  if (totalV > 0) {
+    var pctR = Math.round((refused / totalV) * 100);
+    $("ratio").innerHTML =
+      (refused ? '<span style="flex:' + refused + ';background:var(--step-2)">' +
+        (pctR >= 12 ? refused + " refused" : refused) + "</span>" : "") +
+      (changed ? '<span style="flex:' + changed + ';background:var(--cat-2)">' +
+        (100 - pctR >= 12 ? changed + " changed the book" : changed) + "</span>" : "");
+    $("ratio-key").innerHTML =
+      '<span><i style="background:var(--step-2)"></i>Refused or monitored</span>' +
+      '<span><i style="background:var(--cat-2)"></i>Changed the manuscript</span>';
+    $("verdict-read").textContent =
+      "Most research should not change a textbook, and the system is built to reach " +
+      "that conclusion cheaply. A cluster must clear an evidence floor — at least one " +
+      "scientific or independently verified source, and two independent sources — " +
+      "before a model is asked for an opinion at all.";
+  } else {
+    $("verdict-read").textContent = "No verdicts recorded yet.";
+  }
+
+  /* ── tiles ────────────────────────────────────────────────────── */
+  var llm = D.llm || {}, research = D.research || {}, clusters = D.clusters || {};
+  var tiles = [
+    ["Research items", n(research.total), (research.by_source || []).length + " sources"],
+    ["Evidence", n(research.evidence_total), "attributed to a source"],
+    ["Clusters", n(clusters.total), "deduplicated themes"],
+    ["Book sections", n(book.sections), n(book.words) + " words"],
+    ["Concepts indexed", n(book.concepts), n(book.graph_edges) + " graph edges"],
+    ["Claims tracked", n(book.claims), n(book.claims_needing_citation) + " need a source"],
+    ["Bibliography", n(book.bib_entries), "verified entries"],
+    ["LLM requests", n(llm.requests), (llm.keys || 0) + " keys in pool"]
+  ];
+  $("tiles").innerHTML = tiles.map(function (t) {
+    return '<div class="tile"><div class="k">' + esc(t[0]) + '</div><div class="v">' +
+      esc(t[1]) + '</div><div class="s">' + esc(t[2]) + "</div></div>";
+  }).join("");
+
+  /* ── bar charts: one scale, direct-labelled ───────────────────── */
+  function bars(el, rows, colorFor) {
+    if (!rows.length) {
+      el.innerHTML = '<p style="color:var(--ink-faint);font-size:12.5px;margin:0">' +
+        "Nothing recorded yet.</p>";
+      return;
+    }
+    var max = Math.max.apply(null, rows.map(function (r) { return r.value; })) || 1;
+    el.innerHTML = rows.map(function (r, i) {
+      var pct = Math.max(2, (r.value / max) * 100);
+      return '<div class="bar-row">' +
+        '<div class="name" title="' + esc(r.label) + '">' +
+          (r.mono ? "<code>" + esc(r.label) + "</code>" : esc(r.label)) + "</div>" +
+        '<div class="track"><div class="fill" style="width:' + pct +
+          "%;background:" + colorFor(i, rows.length, r) + '"></div></div>' +
+        '<div class="num">' + n(r.value) + "</div></div>";
+    }).join("");
+  }
+
+  /* Sequential: magnitude comparison, one hue, more-is-darker. */
+  function sequential(i, total) {
+    var steps = ["var(--step-4)", "var(--step-3)", "var(--step-2)", "var(--step-1)"];
+    var idx = Math.min(steps.length - 1, Math.floor((i / Math.max(1, total - 1)) * (steps.length - 1)));
+    return steps[idx];
+  }
+
+  bars($("sources"), (research.by_source || []).map(function (r) {
+    return { label: r.source, value: r.n, mono: true };
+  }), sequential);
+
+  /* Evidence kinds are ordinal by weight: strongest darkest. */
+  bars($("evidence"), (research.evidence || []).map(function (r) {
+    return { label: r.kind.replace(/_/g, " "), value: r.count };
+  }), function (i, total) { return sequential(i, total); });
+
+  /* Maturity is ordinal: speculative → mature. */
+  bars($("maturity"), (clusters.maturity || []).map(function (r) {
+    return { label: r.level, value: r.count };
+  }), function (i, total) {
+    var steps = ["var(--step-1)", "var(--step-2)", "var(--step-3)", "var(--step-4)", "var(--step-5)"];
+    return steps[Math.min(i, steps.length - 1)];
+  });
+
+  /* Pipeline states: emphasis — anything needing a person is the point. */
+  bars($("pipelines"), ((D.pipelines || {}).by_state || []).map(function (r) {
+    return { label: r.state, value: r.n, mono: true, state: r.state };
+  }), function (i, total, r) {
+    if (r.state === "FAILED") return "var(--bad)";
+    if (r.state === "NEEDS_HUMAN") return "var(--warn)";
+    if (r.state === "COMPLETED") return "var(--ok)";
+    return "var(--step-2)";
+  });
+
+  /* ── decisions ────────────────────────────────────────────────── */
+  function decisions(el, rows, changedStyle) {
+    if (!rows.length) {
+      el.innerHTML = '<p style="color:var(--ink-faint);font-size:12.5px;margin:0">' +
+        "None yet.</p>";
+      return;
+    }
+    el.innerHTML = rows.map(function (r) {
+      var tags = '<span class="chip">' + esc(r.maturity || "—") + "</span>";
+      if (r.decision) tags += '<span class="chip acc">' + esc(r.decision) + "</span>";
+      if (r.scope) tags += '<span class="chip">' + esc(r.scope) + "</span>";
+      return '<div class="decision' + (changedStyle ? " changed" : "") + '">' +
+        '<div class="t">' + esc(String(r.title || "").slice(0, 110)) + "</div>" +
+        '<div class="why">' + esc(String(r.rationale || "").slice(0, 300)) + "</div>" +
+        '<div class="tags">' + tags + "</div></div>";
+    }).join("");
+  }
+  decisions($("changes"), v.accepted || [], true);
+  decisions($("refusals"), v.refusals || [], false);
+
+  /* ── tables ───────────────────────────────────────────────────── */
+  var lifeChip = { INTEGRATED: "ok", MONITOR: "warn", DISMISSED: "", DISCOVERED: "acc" };
+  /* Titles render as text, not links. The page is a snapshot an operator reads;
+     drill-down happens through the CLI or the MCP tools, which carry the full
+     provenance chain rather than just a URL. */
+  $("recent").innerHTML = (D.recent_research || []).slice(0, 14).map(function (r) {
+    return "<tr><td><span class='chip'>" + esc(r.source) + "</span></td>" +
+      "<td>" + esc(String(r.title || "").slice(0, 78)) + "</td>" +
+      "<td><span class='chip " + (lifeChip[r.lifecycle] || "") + "'>" +
+        esc(r.lifecycle) + "</span></td></tr>";
+  }).join("");
+
+  function every(sec) {
+    if (!sec) return "—";
+    if (sec >= 86400) return Math.round(sec / 86400) + "d";
+    if (sec >= 3600) return Math.round(sec / 3600) + "h";
+    if (sec >= 60) return Math.round(sec / 60) + "m";
+    return sec + "s";
+  }
+  $("schedule").innerHTML = (D.scheduler || []).map(function (r) {
+    var cls = r.last_status === "ok" ? "ok" : (r.last_status ? "bad" : "");
+    return "<tr><td><code>" + esc(r.name) + "</code></td>" +
+      "<td>" + every(r.interval_seconds) + "</td>" +
+      "<td>" + esc(r.last_run_at ? String(r.last_run_at).slice(11, 16) + " UTC" : "—") + "</td>" +
+      "<td><span class='chip " + cls + "'>" + esc(r.last_status || "pending") +
+      "</span></td></tr>";
+  }).join("");
+
+  /* ── footer ───────────────────────────────────────────────────── */
+  var totals = D.totals || {};
+  $("foot-left").textContent =
+    n(totals.events) + " logged events · " + n(totals.artifacts) +
+    " artifacts · " + n(totals.runs) + " runs";
+  $("foot-right").innerHTML = llm.requests
+    ? n(llm.tokens_in) + " tokens in / " + n(llm.tokens_out) + " out · " +
+      (llm.disabled || 0) + " of " + (llm.keys || 0) + " keys disabled"
+    : "";
+})();
+</script>

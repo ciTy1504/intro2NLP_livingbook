@@ -67,3 +67,6 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+# generated snapshot; rebuild with `livingbook dashboard`
+dashboard/index.html
