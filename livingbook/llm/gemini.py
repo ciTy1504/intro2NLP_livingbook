@@ -362,12 +362,23 @@ class GeminiProvider(LLMProvider):
 
         if opts.cache:
             hit = self.cache.get(ck)
-            if hit is not None:
+            # Conform on the way out as well as on the way in: entries written before
+            # the check existed still hold the wrong shape, and a cached bad shape is
+            # worse than a live one — it fails identically on every retry, which is
+            # how one pipeline burned three attempts and went to FAILED.
+            cached_data = (_conform_to_schema_shape(hit["data"], schema)
+                           if hit is not None else None)
+            if cached_data is not None:
                 self.usage.cache_hits += 1
                 return StructuredResponse(
-                    data=hit["data"], model=hit.get("model", chain[0]),
+                    data=cached_data, model=hit.get("model", chain[0]),
                     usage=Usage(**hit.get("usage", {})), cached=True,
                 )
+            if hit is not None:
+                # An unusable entry is not a hit. Generate afresh and let the new
+                # answer overwrite it, rather than serving the same broken shape
+                # until the ttl expires.
+                self.log.debug("structured: cached entry has the wrong shape, regenerating")
             self.usage.cache_misses += 1
 
         def body_for(model: str) -> dict[str, Any]:
@@ -388,6 +399,8 @@ class GeminiProvider(LLMProvider):
         self.usage.record(model, role, usage.prompt_tokens, usage.output_tokens)
 
         parsed, repaired = _parse_json(text)
+        if parsed is not None:
+            parsed = _conform_to_schema_shape(parsed, schema)
         if parsed is None:
             # One repair attempt, feeding the model back its own malformed output.
             repair_prompt = (
@@ -401,6 +414,8 @@ class GeminiProvider(LLMProvider):
                 options=GenerationOptions(temperature=0.0, cache=False),
             )
             parsed, _ = _parse_json(fixed.text)
+            if parsed is not None:
+                parsed = _conform_to_schema_shape(parsed, schema)
             repaired = True
             if parsed is None:
                 raise SchemaValidationError(
@@ -649,3 +664,44 @@ def _parse_json(text: str) -> tuple[Any | None, bool]:
                 continue
 
     return None, False
+
+
+def _conform_to_schema_shape(parsed: Any, schema: dict[str, Any]) -> Any:
+    """Make the top-level shape match what the schema asked for.
+
+    A schema declaring OBJECT is sometimes answered with a one-element array holding
+    that object. Every caller then does data.get(...) on a list and dies with
+    "'list' object has no attribute 'get'" — which is what took the citation
+    verifier down three attempts in a row and failed the pipeline outright.
+
+    Unwrapping here rather than at each call site because the shape is the provider's
+    contract to keep, and there are dozens of callers who would otherwise each need
+    the same defensive check.
+    """
+    want = str(schema.get("type", "")).upper()
+    if want == "OBJECT" and isinstance(parsed, list):
+        objects = [x for x in parsed if isinstance(x, dict)]
+        if len(objects) == 1:
+            return objects[0]
+        if objects:
+            # Several objects where one was asked for: merge shallowly, first wins,
+            # which preserves the primary answer and keeps any fields it omitted.
+            merged: dict[str, Any] = {}
+            for obj in reversed(objects):
+                merged.update(obj)
+            return merged
+        # A list holding no object at all — measured: a bare list of caveat strings
+        # where the whole verification object was asked for. Nothing here can be
+        # reshaped into the answer, so report it as unusable and let the caller's
+        # repair pass ask again, rather than handing back something that crashes
+        # every consumer with "'list' object has no attribute 'get'".
+        return None
+    if want == "OBJECT" and parsed is not None and not isinstance(parsed, dict):
+        return None
+    if want == "ARRAY" and isinstance(parsed, dict):
+        # The mirror image: a single item returned bare instead of in a list.
+        for value in parsed.values():
+            if isinstance(value, list):
+                return value
+        return [parsed]
+    return parsed
