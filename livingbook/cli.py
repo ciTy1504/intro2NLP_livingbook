@@ -514,6 +514,51 @@ async def cmd_mcp(args: argparse.Namespace) -> int:
     return 0
 
 
+
+async def cmd_stuck(args: argparse.Namespace) -> int:
+    """Show pipelines that need an operator, and optionally retry them."""
+    from livingbook.llm import get_provider
+    from livingbook.orchestrator import Orchestrator
+    from livingbook.state.machine import State
+
+    orch = Orchestrator()
+
+    if args.retry:
+        pipe = await orch.retry(
+            args.retry,
+            from_state=State(args.from_state) if args.from_state else None,
+            reset_revisions=args.reset_revisions,
+            note=args.note or "retried by operator")
+        print(f"{pipe.id} -> {pipe.state.value}")
+        if args.run:
+            final = await orch.driver.run_to_completion(pipe)
+            print(f"{final.id} -> {final.state.value}")
+        await get_provider().aclose()
+        return 0
+
+    if args.resume_all:
+        n = await orch.resume_failed()
+        print(f"resumed {n} failed pipeline(s)")
+        return 0
+
+    rows = orch.stuck()
+    if not rows:
+        print("nothing is stuck")
+        return 0
+    _h(f"Needs an operator ({len(rows)})")
+    for r in rows:
+        print(f"\n  {r['id']}  [{r['state']}]  revisions={r['revisions']}  {r['updated_at']}")
+        if r.get("title"):
+            print(f"    research: [{r['maturity']}] {r['title'][:70]}")
+        if r.get("last_error"):
+            print(f"    error   : {r['last_error'][:200]}")
+        print(f"    review  : reviews/{r['id']}.md")
+        print(f"    retry   : python -m livingbook.cli stuck --retry {r['id']} --reset-revisions")
+        print(f"    reject  : python -m livingbook.cli reject {r['id']} --reason '...'")
+    print()
+    return 0
+
+
 # ── argument parsing ──────────────────────────────────────────────────────
 
 
@@ -614,6 +659,15 @@ def build_parser() -> argparse.ArgumentParser:
     em_sub.add_parser("status")
     em_sub.add_parser("test", help="send a test message to the configured recipients")
 
+    st = sub.add_parser("stuck", help="pipelines needing an operator; retry or inspect")
+    st.add_argument("--retry", metavar="PIPELINE_ID", help="put this pipeline back on the path")
+    st.add_argument("--from-state", help="state to resume from (default: where it was)")
+    st.add_argument("--reset-revisions", action="store_true",
+                    help="clear the revision count, for when the system was at fault")
+    st.add_argument("--note", default="", help="why it is being retried")
+    st.add_argument("--run", action="store_true", help="drive it after retrying")
+    st.add_argument("--resume-all", action="store_true", help="resume every FAILED pipeline")
+
     mcpp = sub.add_parser("mcp", help="Model Context Protocol server and client")
     mcp_sub = mcpp.add_subparsers(dest="mcp_command", required=True)
     mcp_sub.add_parser("serve", help="run the MCP server on stdio (clients spawn this)")
@@ -629,7 +683,7 @@ COMMANDS = {
     "daemon": cmd_daemon, "status": cmd_status, "approve": cmd_approve,
     "reject": cmd_reject, "qa": cmd_qa, "llm": cmd_llm, "kb": cmd_kb,
     "git": cmd_git, "trace": cmd_trace, "visual": cmd_visual, "email": cmd_email,
-    "mcp": cmd_mcp,
+    "mcp": cmd_mcp, "stuck": cmd_stuck,
 }
 
 

@@ -212,3 +212,30 @@ def test_independent_source_count_across_sources():
         id="c1", title="t",
         provenance=[_ref("arxiv"), _ref("github"), _ref("openalex")])
     assert cluster.independent_source_count() == 3
+
+
+def test_failed_can_resume_from_where_it_died(machine):
+    """A transient outage must not cost the work already done.
+
+    A pipeline that failed at CITATION_VERIFY should resume at CITATION_FIND, not be
+    forced back to DRAFTED — that would discard a verified draft and a completed
+    citation search because the provider had a bad minute.
+    """
+    pipe = machine.create(state=State.SYNTHESIZED)
+    for state in (State.VERDICT_PENDING, State.VERDICT_APPROVED, State.DRAFTED,
+                  State.TECHNICAL_VERIFY, State.CITATION_AUDIT, State.CITATION_FIND):
+        pipe = machine.transition(pipe, state)
+
+    pipe = machine.fail(pipe, "transient provider outage")
+    assert pipe.state == State.FAILED
+
+    pipe = machine.transition(pipe, State.CITATION_FIND, note="retried")
+    assert pipe.state == State.CITATION_FIND
+
+
+def test_failed_can_reach_every_working_state(machine):
+    for target in FORWARD[:-1]:
+        assert target in TRANSITIONS[State.FAILED], (
+            f"FAILED cannot resume at {target.value}")
+    assert State.COMPLETED not in TRANSITIONS[State.FAILED], (
+        "a failed pipeline must never jump straight to COMPLETED")

@@ -99,7 +99,13 @@ TRANSITIONS: dict[State, set[State]] = {
     State.REJECTED:         set(),
     # A human can resume a parked pipeline from where it stopped.
     State.NEEDS_HUMAN:      set(State) - {State.COMPLETED},
-    State.FAILED:           {State.DISCOVERED, State.VERDICT_PENDING, State.DRAFTED},
+    # FAILED is an error state, not a position on the path, so recovery means
+    # returning to wherever the pipeline actually was. Restricting it to a few early
+    # states forced a pipeline that died on a transient provider outage at
+    # CITATION_VERIFY all the way back to DRAFTED, discarding a verified draft and a
+    # completed citation search for no reason — which defeats the point of persisting
+    # state at each step.
+    State.FAILED:           set(FORWARD[:-1]) | {State.REJECTED, State.NEEDS_HUMAN},
 }
 
 #: States that send work backwards, and therefore count against max_revisions.

@@ -259,6 +259,49 @@ class Orchestrator:
                 self.log.warn(f"could not resume {pipe.id}: {exc}")
         return resumed
 
+    async def retry(
+        self, pipeline_id: str, *, from_state: State | None = None,
+        reset_revisions: bool = False, note: str = "",
+    ) -> Pipeline:
+        """Put a stuck pipeline back on the path, optionally clearing its revisions.
+
+        A pipeline parks in NEEDS_HUMAN after exhausting ``max_revisions``, which is
+        correct when the draft genuinely cannot be fixed. But it is also where a
+        pipeline lands when the *system* was at fault — a transient provider outage, or
+        a defect since fixed. Re-running it then is the right move, and without this it
+        would need a database edit.
+
+        Clearing revisions is deliberate and explicit rather than automatic, because
+        doing it silently would defeat the revision limit entirely.
+        """
+        pipe = self.machine.get(pipeline_id)
+        target = from_state or (
+            State(pipe.previous_state.value) if pipe.previous_state
+            else State.DRAFTED)
+        if target in (State.FAILED, State.NEEDS_HUMAN, State.COMPLETED):
+            target = State.DRAFTED
+
+        if reset_revisions:
+            self.store.execute(
+                "UPDATE pipelines SET revisions = 0 WHERE id = ?", (pipeline_id,))
+            pipe = self.machine.get(pipeline_id)
+
+        reason = note or "retried by operator"
+        self.log.info(f"{pipeline_id}: {pipe.state.value} -> {target.value} ({reason})")
+        return self.machine.transition(
+            pipe, target, note=reason,
+            data={"retried_from": pipe.state.value,
+                  "revisions_reset": reset_revisions})
+
+    def stuck(self) -> list[dict[str, Any]]:
+        """Pipelines that need an operator: FAILED or parked for human review."""
+        rows = self.store.query(
+            "SELECT p.id, p.state, p.revisions, p.last_error, p.previous_state, "
+            "p.updated_at, c.title, c.maturity FROM pipelines p "
+            "LEFT JOIN clusters c ON c.id = p.cluster_id "
+            "WHERE p.state IN ('FAILED','NEEDS_HUMAN') ORDER BY p.updated_at DESC")
+        return [dict(r) for r in rows]
+
     # ── reporting ─────────────────────────────────────────────────────────
     def status(self) -> dict[str, Any]:
         counts = self.store.counts()
