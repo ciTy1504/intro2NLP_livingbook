@@ -247,57 +247,98 @@ async def render_diagram(
 
     palette = ["#2c3e50", "#2980b9", "#8e44ad", "#e67e22", "#27ae60",
                "#c0392b", "#16a085", "#7f8c8d"]
-    layout = spec.get("layout", "flow")
-    placed = _layout_nodes(nodes, layout)
 
-    max_x = max(p["x"] + p["w"] for p in placed.values()) + 0.6
-    max_y = max(p["y"] + p["h"] for p in placed.values()) + 1.2
+    # Wrap every label FIRST, then size the grid to the widest and tallest of them.
+    # Sizing boxes before knowing their text is what produced unreadable diagrams:
+    # eight nodes drew as three overlapping slabs with their labels stacked on top of
+    # one another, which figure QA correctly rejected.
+    FONT = 9.0
+    WRAP_CHARS = 20
+    labelled = []
+    for node in nodes:
+        text = _wrap(str(node.get("label", node["id"])), WRAP_CHARS)
+        lines = text.split("\n")
+        labelled.append({
+            "id": str(node["id"]),
+            "text": text,
+            "cols": max(len(ln) for ln in lines),
+            "rows": len(lines),
+            "color": node.get("color"),
+            "shape": node.get("shape"),
+            "row": node.get("row"),
+            "col": node.get("col"),
+        })
 
-    fig, ax = plt.subplots(figsize=(max(7.0, max_x * 1.05), max(3.2, max_y * 0.95)))
+    # Character and line box in axis units, chosen so the text sits inside with margin.
+    CW, LH = 0.115, 0.34
+    cell_w = max(2.0, max(n["cols"] for n in labelled) * CW + 0.5)
+    cell_h = max(0.9, max(n["rows"] for n in labelled) * LH + 0.4)
+
+    placed = _layout_nodes(labelled, spec.get("layout", "flow"), cell_w, cell_h)
+
+    # Notes sit below the lowest box, so the grid is lifted to make room rather than
+    # letting the note collide with it.
+    note_room = 0.75 if spec.get("notes") else 0.0
+    if note_room:
+        for slot in placed.values():
+            slot["y"] += note_room
+
+    max_x = max(p["x"] + p["w"] for p in placed.values()) + 0.5
+    max_y = max(p["y"] + p["h"] for p in placed.values()) + 1.1
+
+    fig, ax = plt.subplots(figsize=(max(7.0, max_x * 1.0), max(3.4, max_y * 1.0)))
     ax.set_xlim(0, max_x)
     ax.set_ylim(0, max_y)
     ax.axis("off")
 
-    for i, node in enumerate(nodes):
+    for i, node in enumerate(labelled):
         p = placed[node["id"]]
-        colour = node.get("color") or palette[i % len(palette)]
-        rounding = 0.16 if node.get("shape") != "sharp" else 0.01
+        colour = node["color"] or palette[i % len(palette)]
+        rounding = 0.14 if node["shape"] != "sharp" else 0.01
         ax.add_patch(FancyBboxPatch(
             (p["x"], p["y"]), p["w"], p["h"],
-            boxstyle=f"round,pad=0.06,rounding_size={rounding}",
-            facecolor=colour, alpha=0.9, edgecolor="white", linewidth=1.6,
+            boxstyle=f"round,pad=0.04,rounding_size={rounding}",
+            facecolor=colour, alpha=0.92, edgecolor="white", linewidth=1.6,
         ))
         ax.text(
-            p["x"] + p["w"] / 2, p["y"] + p["h"] / 2,
-            _wrap(str(node.get("label", node["id"])), int(p["w"] * 9)),
-            ha="center", va="center", fontsize=9, color="white",
-            fontweight="bold", linespacing=1.35,
+            p["x"] + p["w"] / 2, p["y"] + p["h"] / 2, node["text"],
+            ha="center", va="center", fontsize=FONT, color="white",
+            fontweight="bold", linespacing=1.3,
         )
 
+    # Edge labels are nudged apart when two would land on the same spot.
+    used_label_spots: list[tuple[float, float]] = []
     for edge in edges:
-        a, b = placed.get(edge.get("from")), placed.get(edge.get("to"))
+        a, b = placed.get(str(edge.get("from"))), placed.get(str(edge.get("to")))
         if not a or not b:
             continue
         (x1, y1), (x2, y2) = _edge_points(a, b)
         style = "->" if edge.get("style") != "bidirectional" else "<->"
         ax.annotate(
             "", xy=(x2, y2), xytext=(x1, y1),
-            arrowprops=dict(arrowstyle=style, color="#444", linewidth=1.7,
+            arrowprops=dict(arrowstyle=style, color="#555", linewidth=1.6,
                             linestyle="--" if edge.get("style") == "dashed" else "-",
-                            connectionstyle="arc3,rad=0.0"),
+                            shrinkA=2, shrinkB=2),
         )
-        if edge.get("label"):
-            ax.text((x1 + x2) / 2, (y1 + y2) / 2 + 0.16, str(edge["label"]),
-                    ha="center", va="bottom", fontsize=7.5, color="#333",
-                    bbox=dict(boxstyle="round,pad=0.18", fc="white", ec="none", alpha=0.85))
+        if not edge.get("label"):
+            continue
+        lx, ly = (x1 + x2) / 2, (y1 + y2) / 2
+        while any(abs(lx - ux) < 0.9 and abs(ly - uy) < 0.22
+                  for ux, uy in used_label_spots):
+            ly += 0.24
+        used_label_spots.append((lx, ly))
+        ax.text(lx, ly, _wrap(str(edge["label"]), 18), ha="center", va="center",
+                fontsize=7.2, color="#333", linespacing=1.15,
+                bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="#ddd", alpha=.95))
 
     for note in spec.get("notes") or []:
         ax.text(float(note.get("x", max_x / 2)), float(note.get("y", 0.3)),
-                str(note.get("text", "")), ha="center", fontsize=8, color="#555")
+                _wrap(str(note.get("text", "")), 70), ha="center", va="bottom",
+                fontsize=8, color="#555")
 
     if spec.get("title"):
-        ax.text(max_x / 2, max_y - 0.35, str(spec["title"]),
-                ha="center", fontsize=12.5, fontweight="bold")
+        ax.text(max_x / 2, max_y - 0.3, _wrap(str(spec["title"]), 60),
+                ha="center", va="top", fontsize=12.5, fontweight="bold")
 
     target.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(target, dpi=dpi, bbox_inches="tight", facecolor="white")
@@ -313,34 +354,52 @@ async def render_diagram(
     }
 
 
-def _layout_nodes(nodes: list[dict[str, Any]], layout: str) -> dict[str, dict[str, float]]:
+def _layout_nodes(
+    nodes: list[dict[str, Any]], layout: str, cell_w: float, cell_h: float,
+) -> dict[str, dict[str, float]]:
+    """Place nodes on a uniform grid, resolving any cell collisions.
+
+    Every box is the same size — the size the longest label needs — so the diagram
+    reads as a system of equals and nothing can overflow its box. Collisions are
+    resolved rather than trusted: a generated spec routinely assigns two nodes the
+    same (row, col), and drawing them both there stacks their labels into an
+    unreadable smear.
+    """
+    GAP_X, GAP_Y = 0.55, 0.65
+    PAD = 0.4
+
+    assigned: dict[str, tuple[int, int]] = {}
+    taken: set[tuple[int, int]] = set()
+
+    def claim(node_id: str, row: int, col: int) -> None:
+        while (row, col) in taken:
+            col += 1
+        taken.add((row, col))
+        assigned[node_id] = (row, col)
+
+    if layout == "grid" and any(n.get("row") is not None for n in nodes):
+        for i, n in enumerate(nodes):
+            row = int(n["row"]) if n.get("row") is not None else i
+            col = int(n["col"]) if n.get("col") is not None else 0
+            claim(n["id"], max(0, row), max(0, col))
+    else:
+        # A pipeline reads best as a flow; wrap to a new row so it never becomes an
+        # unrenderably wide strip.
+        per_row = 4 if len(nodes) > 6 else 3
+        for i, n in enumerate(nodes):
+            row, col = divmod(i, per_row)
+            claim(n["id"], row, col)
+
+    rows = max(r for r, _ in assigned.values()) + 1
     placed: dict[str, dict[str, float]] = {}
-    if layout == "manual" and all("x" in n and "y" in n for n in nodes):
-        for n in nodes:
-            placed[n["id"]] = {"x": float(n["x"]), "y": float(n["y"]),
-                               "w": float(n.get("w", 2.0)), "h": float(n.get("h", 1.0))}
-        return placed
-
-    if layout == "grid":
-        rows = max(int(n.get("row", 0)) for n in nodes) + 1
-        for n in nodes:
-            row = int(n.get("row", 0))
-            col = int(n.get("col", 0))
-            w = float(n.get("w", 2.2))
-            h = float(n.get("h", 1.1))
-            placed[n["id"]] = {"x": 0.4 + col * (w + 0.6),
-                               "y": 0.6 + (rows - 1 - row) * (h + 0.7), "w": w, "h": h}
-        return placed
-
-    # "flow": left-to-right, wrapping to a new row every 5 nodes so a long pipeline
-    # stays readable instead of becoming an unrenderably wide strip.
-    per_row = 5
-    for i, n in enumerate(nodes):
-        row, col = divmod(i, per_row)
-        w = float(n.get("w", 2.2))
-        h = float(n.get("h", 1.1))
-        placed[n["id"]] = {"x": 0.4 + col * (w + 0.7),
-                           "y": 0.6 + (2 - row) * (h + 0.9), "w": w, "h": h}
+    for node_id, (row, col) in assigned.items():
+        placed[node_id] = {
+            "x": PAD + col * (cell_w + GAP_X),
+            # Row 0 at the top: a reader follows a process downward.
+            "y": PAD + (rows - 1 - row) * (cell_h + GAP_Y),
+            "w": cell_w,
+            "h": cell_h,
+        }
     return placed
 
 
@@ -358,8 +417,18 @@ def _edge_points(a: dict[str, float], b: dict[str, float]) -> tuple[tuple[float,
 
 
 def _wrap(text: str, width: int) -> str:
+    """Wrap to a character width, breaking long tokens rather than overflowing.
+
+    A label like ``w_i.w_j + b_i + b_j`` has no spaces textwrap will break on by
+    default, so without break_long_words it runs straight past the edge of its box.
+    """
     import textwrap
-    return "\n".join(textwrap.wrap(text, max(8, width)) or [text])
+
+    width = max(8, width)
+    return "\n".join(
+        textwrap.wrap(text, width, break_long_words=True, break_on_hyphens=False)
+        or [text]
+    )
 
 
 @tool("generate_image", [Capability.LLM, Capability.FS_WRITE],
