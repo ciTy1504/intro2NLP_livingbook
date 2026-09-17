@@ -212,3 +212,19 @@ def test_the_citation_finder_is_allowed_and_asked_to_use_it():
     assert "search_bibliography" in src, "the skill must actually call it"
     assert src.index("search_bibliography") < src.index("search_openalex"), (
         "the bibliography must be consulted before the web")
+
+
+def test_an_existing_key_survives_onto_the_candidate():
+    """Finding the entry is not enough — the key has to reach the validator.
+
+    Without it, a source the book already cites goes back through entry creation and
+    produces a near-duplicate of an entry a few lines away in the same file.
+    """
+    import inspect
+
+    from livingbook.skills.citation.audit import CitationSearchSkill
+
+    src = inspect.getsource(CitationSearchSkill._rank)
+    assert "bib_key=" in src, "CitationCandidate must be given the existing key"
+    assert "ALREADY CITED IN THIS BOOK" in src, (
+        "the ranker cannot prefer an already-cited source it cannot see")

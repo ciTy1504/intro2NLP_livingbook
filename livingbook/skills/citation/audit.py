@@ -243,7 +243,9 @@ class CitationSearchSkill(Skill):
             f"    year: {c.get('year') or c.get('published','')}  "
             f"venue: {c.get('venue','')}  citations: {c.get('citation_count','?')}\n"
             f"    doi: {c.get('doi','')}  arxiv: {c.get('arxiv_id','')}\n"
-            f"    abstract: {(c.get('abstract') or '')[:700]}"
+            + (f"    ALREADY CITED IN THIS BOOK, key: {c['bib_key']}\n"
+               if c.get("bib_key") else "")
+            + f"    abstract: {(c.get('abstract') or '')[:700]}"
             for i, c in enumerate(candidates)
         )
         prompt = (
@@ -259,6 +261,9 @@ class CitationSearchSkill(Skill):
             "  authoritative      a survey or standard reference by recognised authors\n"
             "  secondary          anything else that reliably reports it\n\n"
             "A later paper that merely mentions the claim is NOT a primary source. "
+            "Where a candidate is marked ALREADY CITED IN THIS BOOK and genuinely "
+            "settles the claim, prefer it: the author has already vetted it, and "
+            "reusing its key avoids a second entry for the same work. "
             "Set best_index to -1 if none of these would actually settle the claim.\n\n"
             f"CANDIDATES:\n{listing[:30000]}"
         )
@@ -288,6 +293,10 @@ class CitationSearchSkill(Skill):
                     url=str(c.get("url", "")), title=str(c.get("title", ""))),
                 relevance_rationale=r.get("rationale", ""),
                 source_tier=r.get("source_tier", "secondary"),
+                # A hit from the book's own bibliography already has a key. Losing it
+                # here would send a source the book already cites back through entry
+                # creation and produce a near-duplicate of an entry two lines away.
+                bib_key=str(c.get("bib_key", "") or ""),
             ))
         return out
 
