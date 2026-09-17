@@ -75,6 +75,51 @@ def test_the_pipeline_hands_the_stored_feedback_to_the_writer():
 
     from livingbook.orchestrator import pipeline as pipeline_module
 
-    src = inspect.getsource(pipeline_module.PipelineDriver._draft)
-    assert "unsupported_claims" in src, "_draft must pass the rejected claims through"
-    assert "technical_findings" in src, "_draft must pass technical findings through"
+    src = inspect.getsource(pipeline_module.PipelineDriver._write_patches)
+    assert "unsupported_claims" in src, "the Writer call must carry the rejected claims"
+    assert "technical_findings" in src, "the Writer call must carry technical findings"
+
+
+# -- the backward edge must actually reach the Writer -------------------------
+#
+# The bug the feedback plumbing hid: steps dispatch on the *current* state, and
+# DRAFTED's step is _technical_verify. _draft — the only thing that calls the Writer —
+# ran once, on the way in from VERDICT_APPROVED. So a backward edge into DRAFTED
+# re-verified the same patches and sent them round again unchanged. "Send it back to
+# the Writer" never reached the Writer.
+
+def test_drafted_dispatches_to_a_step_that_can_rewrite():
+    """Whatever handles DRAFTED must be able to re-run the Writer."""
+    import inspect
+
+    from livingbook.orchestrator.pipeline import PipelineDriver
+
+    src = inspect.getsource(PipelineDriver._technical_verify)
+    assert "_write_patches" in src, (
+        "the DRAFTED step must be able to re-draft; otherwise a rejected draft is "
+        "verified again unchanged and the pipeline loops until max_revisions")
+    assert "unsupported_claims" in src
+
+
+def test_a_rejected_draft_is_rewritten_before_it_is_verified_again():
+    """Order matters: rewrite first, then verify the new text, not the old."""
+    import inspect
+
+    from livingbook.orchestrator.pipeline import PipelineDriver
+
+    src = inspect.getsource(PipelineDriver._technical_verify)
+    rewrite_at = src.find("_write_patches")
+    verify_at = src.find("TechnicalVerifier")
+    assert rewrite_at != -1 and verify_at != -1
+    assert rewrite_at < verify_at, "the re-draft must happen before verification"
+
+
+def test_feedback_is_cleared_once_acted_on():
+    """Otherwise the next revision re-litigates claims already dealt with."""
+    import inspect
+
+    from livingbook.orchestrator.pipeline import PipelineDriver
+
+    src = inspect.getsource(PipelineDriver._technical_verify)
+    assert '"unsupported_claims": []' in src
+    assert '"technical_findings": []' in src

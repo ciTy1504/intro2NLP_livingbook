@@ -169,27 +169,64 @@ class PipelineDriver:
         # record their reason, and handing it to the Writer is the whole point of
         # sending the work back — without it the re-draft is identical to the draft
         # that was just rejected.
-        agent = WriterAgent(pipeline_id=pipe.id)
-        patches: list[DraftPatch] = await agent.run(
-            verdict=verdict, cluster=cluster, dry_run=True,
-            unsupported_claims=pipe.data.get("unsupported_claims") or [],
-            technical_findings=pipe.data.get("technical_findings") or [])
+        patches = await self._write_patches(pipe, verdict=verdict, cluster=cluster)
 
         return StepResult(
             State.DRAFTED,
             note=f"{len(patches)} patch(es), "
                  f"{sum(p.lines_changed for p in patches)} lines",
             data={"patches": [p.model_dump(mode="json") for p in patches],
-                  "revision": pipe.data.get("revision", 0),
-                  # Cleared now that they have been acted on, so a later revision for a
-                  # different reason does not re-litigate claims already dealt with.
-                  "unsupported_claims": [], "technical_findings": []})
+                  "revision": pipe.data.get("revision", 0)})
+
+    async def _write_patches(
+        self, pipe: Pipeline, *, verdict: Any, cluster: Any,
+    ) -> list[DraftPatch]:
+        """Run the Writer, telling it why the previous draft came back, if it did."""
+        agent = WriterAgent(pipeline_id=pipe.id)
+        return await agent.run(
+            verdict=verdict, cluster=cluster, dry_run=True,
+            unsupported_claims=pipe.data.get("unsupported_claims") or [],
+            technical_findings=pipe.data.get("technical_findings") or [])
 
     async def _technical_verify(self, pipe: Pipeline) -> StepResult:
         cluster = self._cluster(pipe)
         patches = self._patches(pipe)
         if not patches:
             return StepResult(State.FAILED, note="no patches to verify")
+
+        # Steps dispatch on the current state, and DRAFTED's step is this one — so
+        # _draft, which is the only thing that calls the Writer, runs exactly once,
+        # on the way in from VERDICT_APPROVED. A backward edge into DRAFTED therefore
+        # re-verified the *same* patches and sent them round again unchanged: five
+        # claims, the same five citation gaps, every cycle, until max_revisions parked
+        # the pipeline in NEEDS_HUMAN. "Send it back to the Writer" never reached the
+        # Writer at all.
+        #
+        # Pending feedback means the draft in hand is the one that was just rejected.
+        # Rewrite it before verifying, and clear the feedback so the next revision
+        # does not re-litigate claims already dealt with.
+        redraft_data: dict[str, Any] = {}
+        pending_claims = pipe.data.get("unsupported_claims") or []
+        pending_technical = pipe.data.get("technical_findings") or []
+        if pending_claims or pending_technical:
+            verdict = self._verdict_obj(pipe)
+            if verdict and cluster:
+                reason = "citation" if pending_claims else "technical"
+                self.log.info(
+                    f"re-drafting after {reason} rejection "
+                    f"({len(pending_claims)} unsourced claim(s), "
+                    f"{len(pending_technical)} technical finding(s))")
+                patches = await self._write_patches(
+                    pipe, verdict=verdict, cluster=cluster)
+                redraft_data = {
+                    "patches": [p.model_dump(mode="json") for p in patches],
+                    "unsupported_claims": [], "technical_findings": [],
+                }
+                if not patches:
+                    return StepResult(
+                        State.NEEDS_HUMAN,
+                        note=f"re-draft after {reason} rejection produced no patch",
+                        data=redraft_data)
 
         agent = TechnicalVerifier(pipeline_id=pipe.id)
         reports = []
@@ -201,13 +238,15 @@ class PipelineDriver:
             return StepResult(
                 State.DRAFTED,
                 note=f"technical blockers: {blockers[0].detail[:150]}",
-                data={"technical_findings": [f.model_dump(mode="json") for f in blockers],
+                data={**redraft_data,
+                      "technical_findings": [f.model_dump(mode="json") for f in blockers],
                       "revision": pipe.data.get("revision", 0) + 1,
                       "revision_reason": "technical"})
 
         return StepResult(
             State.TECHNICAL_VERIFY, note="technical verification passed",
-            data={"technical_reports": [r.model_dump(mode="json") for r in reports]})
+            data={**redraft_data,
+                  "technical_reports": [r.model_dump(mode="json") for r in reports]})
 
     async def _citation_audit(self, pipe: Pipeline) -> StepResult:
         patches = self._patches(pipe)
