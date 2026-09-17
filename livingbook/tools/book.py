@@ -15,6 +15,7 @@ and able to fail a pipeline on facts rather than opinions.
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 import shutil
 import tempfile
@@ -360,6 +361,92 @@ async def check_figures() -> dict[str, Any]:
             and p.stem not in set(present)
         ) if images_dir.exists() else [],
     }
+
+
+@tool("search_bibliography", [Capability.FS_READ],
+      description="Search the book's own bibliography for a source supporting a claim.")
+async def search_bibliography(*, query: str, limit: int = 6) -> list[dict[str, Any]]:
+    """Look in references.bib before going to the web.
+
+    The book already cites 228 curated sources, and for a claim about content the book
+    covers, the primary source is often one of them. Measured: the claim "DeepSeek-V3
+    reports 85-90% acceptance for the extra predicted token" sent the citation finder
+    to the web, which returned a third-party analysis; the verifier correctly rejected
+    it as needs_primary, and the pipeline looped — while `deepseekai2024v3`, the
+    DeepSeek-V3 Technical Report, had been sitting in references.bib the whole time.
+
+    Reusing an existing key is better than adding a new entry on every axis that
+    matters here: it is the source the author already vetted, it keeps the
+    bibliography from growing duplicates, and it costs no network call.
+    """
+    cfg = get_config()
+    bib = Bibliography(cfg.bib_path)
+
+    terms = [t for t in re.findall(r"[A-Za-z0-9][A-Za-z0-9.-]{2,}", query.lower())
+             if t not in _BIB_STOPWORDS]
+    if not terms:
+        return []
+
+    # Whole words, not substrings or prefixes. "extra" must match neither
+    # "extracting" nor "vincent2008extracting" — with a leading boundary alone it
+    # still matched the start of "Extracting", and the DeepSeek-V3 report came
+    # back ranked joint-fourth behind three unrelated papers. A trailing boundary
+    # still allows "deepseek" to match "DeepSeek-V3", where the hyphen ends the word.
+    matchers = {t: re.compile(rf"\b{re.escape(t)}\b", re.I)
+                for t in terms}
+
+    fields_for = {}
+    for key, entry in bib.entries.items():
+        fields_for[key] = (
+            (entry.fields.get("title") or "").lower(),
+            f"{key} {entry.fields.get('title','')} {entry.fields.get('author','')} "
+            f"{entry.fields.get('journal','')} {entry.fields.get('booktitle','')}".lower(),
+        )
+
+    # A term matching three entries identifies one of them; a term matching two
+    # hundred identifies nothing. Weight by how rare the term is in this bibliography.
+    breadth = {t: sum(1 for _, hay in fields_for.values() if m.search(hay)) or 1
+               for t, m in matchers.items()}
+    total = len(bib.entries) or 1
+
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for key, entry in bib.entries.items():
+        title, haystack = fields_for[key]
+
+        hits = [t for t, m in matchers.items() if m.search(haystack)]
+        if not hits:
+            continue
+        score = 0.0
+        for t in hits:
+            rarity = math.log(total / breadth[t]) + 1.0
+            # Title matches carry the weight; a term that only appears in the key or
+            # the venue is weak evidence that this is the right entry.
+            score += rarity * (2.0 if matchers[t].search(title) else 1.0)
+        score /= len(terms)
+        scored.append((score, {
+            "bib_key": key,
+            "title": entry.fields.get("title", ""),
+            "authors": entry.fields.get("author", ""),
+            "year": entry.fields.get("year", ""),
+            "doi": entry.fields.get("doi", ""),
+            "url": entry.fields.get("url", ""),
+            "venue": entry.fields.get("journal") or entry.fields.get("booktitle", ""),
+            "source": "book_bibliography",
+            "already_in_bibliography": True,
+            "matched_terms": hits,
+            "score": round(score, 3),
+        }))
+
+    scored.sort(key=lambda x: -x[0])
+    return [c for _, c in scored[:limit]]
+
+
+#: Words too common in a claim to identify an entry.
+_BIB_STOPWORDS = {
+    "the", "and", "for", "with", "that", "this", "from", "has", "have", "are", "was",
+    "reports", "report", "achieves", "achieve", "shows", "show", "using", "used",
+    "model", "models", "token", "tokens", "method", "methods", "approach", "results",
+}
 
 
 #: Hosts that appear in the book as examples, not as links. `localhost:8000` is the

@@ -151,3 +151,64 @@ def test_bot_refusal_is_not_reported_as_a_broken_link():
     # A genuinely missing page still has to be reported.
     assert not _is_bot_refusal(ToolUnavailable("example.org: HTTP 404"))
     assert not _is_bot_refusal(None)
+
+
+# -- the book's own bibliography ---------------------------------------------
+#
+# The citation finder searched five web sources and never looked in references.bib.
+# For a claim about material the book already covers, the primary source is often
+# already cited — and going to the web instead returns a third-party restatement,
+# which the verifier then rejects as needs_primary, which loops the pipeline.
+
+def test_the_bibliography_is_searched_for_a_claim_about_what_the_book_covers():
+    import asyncio
+
+    from livingbook.tools.book import search_bibliography
+
+    # The exact claim that sent the finder to the web and looped the pipeline.
+    hits = asyncio.run(search_bibliography(
+        query="DeepSeek-V3 reports 85-90% acceptance for the extra predicted token"))
+    assert hits, "the bibliography search returned nothing"
+    assert hits[0]["bib_key"] == "deepseekai2024v3", (
+        f"the DeepSeek-V3 Technical Report should rank first, got {hits[0]['bib_key']}")
+    assert hits[0]["already_in_bibliography"] is True
+
+    # And it finds the foundational papers for a topic, not merely word matches.
+    spec = asyncio.run(search_bibliography(
+        query="speculative decoding draft model acceptance rate"))
+    assert {"leviathan2023speculative", "chen2023accelerating"} & {
+        h["bib_key"] for h in spec[:3]}
+
+
+def test_a_common_word_does_not_match_a_longer_one():
+    """Substring matching ranked the right entry joint-fourth: "extra" hit
+    "extracting", "extracted" and "extraction" across unrelated papers."""
+    import asyncio
+
+    from livingbook.tools.book import search_bibliography
+
+    hits = asyncio.run(search_bibliography(query="extra predicted token acceptance"))
+    keys = {h["bib_key"] for h in hits}
+    assert "vincent2008extracting" not in keys, (
+        "'extra' must not match 'extracting' — word boundaries, not substrings")
+
+
+def test_the_citation_finder_is_allowed_and_asked_to_use_it():
+    """Wiring: granting the tool is not the same as calling it."""
+    import inspect
+
+    import yaml
+
+    from livingbook.skills.citation.audit import CitationSearchSkill
+
+    cfg = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "config" / "agents.yaml").read_text(
+            encoding="utf-8"))
+    tools = cfg["agents"]["citation_finder"]["tools"]
+    assert "search_bibliography" in tools
+    assert tools.index("search_bibliography") == 0, "the local bibliography comes first"
+
+    src = inspect.getsource(CitationSearchSkill.run)
+    assert "search_bibliography" in src, "the skill must actually call it"
+    assert src.index("search_bibliography") < src.index("search_openalex"), (
+        "the bibliography must be consulted before the web")

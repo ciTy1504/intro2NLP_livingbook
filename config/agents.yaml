@@ -172,10 +172,13 @@ agents:
     objective: >-
       Find sources that support the exact claim, preferring primary and original
       sources over anything that merely restates them.
-    capabilities: [SEARCH, FETCH, SCHOLARLY, KB_READ, LLM]
+    capabilities: [SEARCH, FETCH, SCHOLARLY, KB_READ, FS_READ, LLM]
     skills: [citation_search]
-    tools: [search_openalex, search_arxiv, search_crossref, search_semantic_scholar,
-            search_acl_anthology, web_search, fetch_url, kb_query, gemini_structured_output]
+    # search_bibliography is consulted before the web: for a claim about content the
+    # book already covers, the primary source is often already cited.
+    tools: [search_bibliography, search_openalex, search_arxiv, search_crossref,
+            search_semantic_scholar, search_acl_anthology, web_search, fetch_url,
+            kb_query, gemini_structured_output]
     model_role: balanced
     failure_policy: retry
 

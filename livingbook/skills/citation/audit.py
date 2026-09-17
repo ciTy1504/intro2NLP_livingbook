@@ -153,8 +153,9 @@ class CitationSearchSkill(Skill):
 
     name = "citation_search"
     required_tools = ("gemini_structured_output",)
-    optional_tools = ("search_openalex", "search_arxiv", "search_crossref",
-                      "search_semantic_scholar", "search_acl_anthology", "web_search")
+    optional_tools = ("search_bibliography", "search_openalex", "search_arxiv",
+                      "search_crossref", "search_semantic_scholar",
+                      "search_acl_anthology", "web_search")
 
     async def run(
         self, ctx: AgentContext, *, gap: CitationGap, max_candidates: int = 8, **_: Any,
@@ -170,6 +171,18 @@ class CitationSearchSkill(Skill):
             "search_semantic_scholar": not cfg.get(
                 "research.sources.semantic_scholar.enabled", False),
         }
+
+        # The book's own bibliography first. It holds sources the author already
+        # vetted, and for a claim about material the book covers, the primary source
+        # is frequently one of them. Measured: "DeepSeek-V3 reports 85-90% acceptance
+        # for the extra predicted token" went to the web, came back with a third-party
+        # analysis, was rejected as needs_primary, and the pipeline looped — while
+        # deepseekai2024v3, the DeepSeek-V3 Technical Report, was already cited in the
+        # book. Reusing a key also keeps the bibliography free of near-duplicates.
+        if "search_bibliography" in ctx.allowed_tools:
+            for query in [gap.claim] + queries[:2]:
+                raw.extend(await ctx.try_call(
+                    "search_bibliography", default=[], query=query, limit=4) or [])
 
         for query in queries[:3]:
             for tool_name, kwargs in (
