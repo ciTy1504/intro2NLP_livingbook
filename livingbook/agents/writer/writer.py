@@ -23,7 +23,10 @@ class WriterAgent(BaseAgent[list[DraftPatch]]):
         return []
 
     async def execute(
-        self, *, verdict: Verdict, cluster: ResearchCluster, dry_run: bool = True, **_: Any,
+        self, *, verdict: Verdict, cluster: ResearchCluster, dry_run: bool = True,
+        unsupported_claims: list[dict[str, Any]] | None = None,
+        technical_findings: list[dict[str, Any]] | None = None,
+        **_: Any,
     ) -> list[DraftPatch]:
         if not verdict.changes_manuscript:
             raise AgentFailure(
@@ -47,7 +50,10 @@ class WriterAgent(BaseAgent[list[DraftPatch]]):
                 continue
 
             surrounding = self._surrounding(retriever, target.node_id)
-            instruction = self._instruction(verdict, target, cluster)
+            instruction = self._instruction(
+                verdict, target, cluster,
+                unsupported_claims=unsupported_claims or [],
+                technical_findings=technical_findings or [])
 
             patch = await editing(
                 self.ctx,
@@ -120,7 +126,11 @@ class WriterAgent(BaseAgent[list[DraftPatch]]):
             lines += [f"  - {c}" for c in verdict.claims_needing_evidence[:10]]
         return "\n".join(lines)
 
-    def _instruction(self, verdict: Verdict, target: Any, cluster: ResearchCluster) -> str:
+    def _instruction(
+        self, verdict: Verdict, target: Any, cluster: ResearchCluster, *,
+        unsupported_claims: list[dict[str, Any]] | None = None,
+        technical_findings: list[dict[str, Any]] | None = None,
+    ) -> str:
         guidance = {
             VerdictDecision.ADD_REFERENCE: (
                 "Add a citation to existing content. Do not add new prose beyond a "
@@ -142,12 +152,41 @@ class WriterAgent(BaseAgent[list[DraftPatch]]):
                 "mark it as such."),
         }.get(verdict.decision, "Make the minimal change the verdict describes.")
 
+        # A re-draft has to be told why the last one came back. Without this the Writer
+        # receives the identical inputs, writes the identical claims, and the pipeline
+        # loops until max_revisions parks it in NEEDS_HUMAN. Measured: one pipeline
+        # spent seventeen hours failing to source the same five claims.
+        redraft = ""
+        if unsupported_claims:
+            items = "\n".join(
+                f"  - {c.get('claim','')[:200]}\n"
+                f"      (rejected: {c.get('why','unsupported')})"
+                for c in unsupported_claims[:6])
+            redraft += (
+                "\n\n=== THIS IS A RE-DRAFT: THE CLAIMS BELOW COULD NOT BE SOURCED ===\n"
+                f"{items}\n"
+                "The citation search already ran and found nothing supporting these. Do\n"
+                "NOT write them again, and do NOT cite a paper that merely repeats the\n"
+                "finding — that was already rejected as citation laundering. For each:\n"
+                "  - weaken it to what the evidence actually shows, naming the specific\n"
+                "    system and setting rather than making a general claim, or\n"
+                "  - attribute it in-text as a single reported result, or\n"
+                "  - drop it and keep the surrounding prose coherent.\n"
+                "A shorter, fully supported passage is the better outcome here.")
+        if technical_findings:
+            items = "\n".join(
+                f"  - {f.get('detail','')[:200]}" for f in technical_findings[:6])
+            redraft += (
+                "\n\n=== TECHNICAL PROBLEMS IN THE PREVIOUS DRAFT ===\n"
+                f"{items}\nFix these specifically; leave what was correct alone.")
+
         return (
             f"TARGET: {target.section_ref or target.node_id} in {target.file}\n"
             f"CHANGE REQUIRED: {target.change}\n"
             f"ESTIMATED SIZE: about {target.estimated_lines or 20} lines\n\n"
             f"{guidance}\n\n"
             f"CONCEPTS INVOLVED: {', '.join(cluster.concepts[:8])}"
+            f"{redraft}"
         )
 
     def _surrounding(self, retriever: BookRetriever, node_id: str) -> str:

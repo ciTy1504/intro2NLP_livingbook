@@ -165,16 +165,25 @@ class PipelineDriver:
         if not (cluster and verdict):
             return StepResult(State.FAILED, note="missing cluster or verdict")
 
+        # Why the previous draft came back, if it did. Both backward edges into DRAFTED
+        # record their reason, and handing it to the Writer is the whole point of
+        # sending the work back — without it the re-draft is identical to the draft
+        # that was just rejected.
         agent = WriterAgent(pipeline_id=pipe.id)
         patches: list[DraftPatch] = await agent.run(
-            verdict=verdict, cluster=cluster, dry_run=True)
+            verdict=verdict, cluster=cluster, dry_run=True,
+            unsupported_claims=pipe.data.get("unsupported_claims") or [],
+            technical_findings=pipe.data.get("technical_findings") or [])
 
         return StepResult(
             State.DRAFTED,
             note=f"{len(patches)} patch(es), "
                  f"{sum(p.lines_changed for p in patches)} lines",
             data={"patches": [p.model_dump(mode="json") for p in patches],
-                  "revision": pipe.data.get("revision", 0)})
+                  "revision": pipe.data.get("revision", 0),
+                  # Cleared now that they have been acted on, so a later revision for a
+                  # different reason does not re-litigate claims already dealt with.
+                  "unsupported_claims": [], "technical_findings": []})
 
     async def _technical_verify(self, pipe: Pipeline) -> StepResult:
         cluster = self._cluster(pipe)
