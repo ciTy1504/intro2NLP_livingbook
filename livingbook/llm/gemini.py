@@ -82,6 +82,12 @@ class GeminiProvider(LLMProvider):
             max_delay=float(config.get("llm.retry.max_delay_seconds", 45)),
             jitter=bool(config.get("llm.retry.jitter", True)),
         )
+        #: How many times the whole chain is walked before the caller degrades, and
+        #: the base pause between walks. A chain that fails in 20s has not really
+        #: tried; one that blocks for 10 minutes starves the pipeline behind it.
+        self.chain_sweeps = int(config.get("llm.retry.chain_sweeps", 3))
+        self.chain_sweep_delay = float(
+            config.get("llm.retry.chain_sweep_delay_seconds", 20.0))
         self.usage = UsageTracker()
         self.cache = ResponseCache(
             config.root / "state" / "llm_cache.db",
@@ -194,39 +200,68 @@ class GeminiProvider(LLMProvider):
     async def _call_with_chain(
         self, role: str, endpoint: str, body_for: Any, *, timeout: float, kind: str,
     ) -> tuple[dict[str, Any], str, int]:
-        """Walk the role's model chain, retrying transient failures per model."""
+        """Walk the role's model chain, sweeping it again if the whole chain is busy.
+
+        Two nested policies, because "this model is saturated" and "every model is
+        saturated" call for different answers.
+
+        Within one sweep, a 503 advances to the next model immediately — retrying a
+        model that just said it is overloaded wastes the request. But when the sweep
+        ends with every model overloaded, the provider has told us the condition is
+        temporary ("Spikes in demand are usually temporary. Please try again"), and
+        giving up is wrong: measured, the `deep` chain burned all three models in 22.6
+        seconds and dropped a synthesis pass over 12 clusters. So the chain is walked
+        again after a real pause.
+
+        Only transient failures earn another sweep. If the chain ended in quota
+        exhaustion or invalid keys, nothing will have changed in twenty seconds and
+        the caller should degrade now rather than three minutes from now.
+        """
         chain = self.selector.chain(role)
         attempts = 0
         errors: list[str] = []
 
-        for idx, model in enumerate(chain):
-            for attempt in range(1, self.retry.max_attempts + 1):
-                attempts += 1
-                try:
-                    data = await self._request(
-                        model, endpoint, body_for(model), timeout=timeout
-                    )
-                    if idx > 0:
-                        self.usage.model_fallbacks += 1
-                    return data, model, attempts
-                except ModelUnavailable as exc:
-                    errors.append(f"{model}: {exc}")
-                    self.log.debug(f"{kind}: {model} unavailable, advancing chain")
-                    break  # next model — retrying a saturated model wastes time
-                except NonRetryable as exc:
-                    # A malformed request is our bug and will fail identically on
-                    # every model; surfacing it immediately is the useful behaviour.
-                    raise
-                except (RateLimited, QuotaExhausted) as exc:
-                    errors.append(f"{model}: {exc}")
-                    if attempt == self.retry.max_attempts:
-                        break
-                    await asyncio.sleep(self.retry.delay_for(attempt))
-                except (TransientError, LLMError) as exc:
-                    errors.append(f"{model}: {exc}")
-                    if attempt == self.retry.max_attempts:
-                        break
-                    await asyncio.sleep(self.retry.delay_for(attempt))
+        for sweep in range(1, self.chain_sweeps + 1):
+            retryable = False
+            for idx, model in enumerate(chain):
+                for attempt in range(1, self.retry.max_attempts + 1):
+                    attempts += 1
+                    try:
+                        data = await self._request(
+                            model, endpoint, body_for(model), timeout=timeout
+                        )
+                        if idx > 0 or sweep > 1:
+                            self.usage.model_fallbacks += 1
+                        return data, model, attempts
+                    except ModelUnavailable as exc:
+                        errors.append(f"{model}: {exc}")
+                        retryable = True
+                        self.log.debug(f"{kind}: {model} unavailable, advancing chain")
+                        break  # next model — retrying a saturated model wastes time
+                    except NonRetryable:
+                        # A malformed request is our bug and will fail identically on
+                        # every model; surfacing it immediately is the useful behaviour.
+                        raise
+                    except (RateLimited, QuotaExhausted) as exc:
+                        errors.append(f"{model}: {exc}")
+                        retryable = retryable or isinstance(exc, RateLimited)
+                        if attempt == self.retry.max_attempts:
+                            break
+                        await asyncio.sleep(self.retry.delay_for(attempt))
+                    except (TransientError, LLMError) as exc:
+                        errors.append(f"{model}: {exc}")
+                        retryable = True
+                        if attempt == self.retry.max_attempts:
+                            break
+                        await asyncio.sleep(self.retry.delay_for(attempt))
+
+            if not retryable or sweep == self.chain_sweeps:
+                break
+            pause = min(self.chain_sweep_delay * sweep, self.retry.max_delay)
+            self.log.warn(
+                f"{kind}: whole {role!r} chain busy, sweeping again in {pause:.0f}s "
+                f"(sweep {sweep + 1}/{self.chain_sweeps})")
+            await asyncio.sleep(pause)
 
         # One line per distinct failure, not one per attempt: a chain of 3 models at
         # 4 retries each otherwise emits 12 near-identical paragraphs.

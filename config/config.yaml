@@ -50,6 +50,13 @@ llm:
     base_delay_seconds: 1.5
     max_delay_seconds: 45
     jitter: true
+    # Walking the chain once is not the same as trying. Measured 2026-09-17: the
+    # 'deep' chain reported all three models overloaded in 22.6s and dropped a
+    # synthesis pass over 12 clusters — while the provider's own message said the
+    # spike was temporary. Three sweeps at 20/40/45s costs ~105s in the worst case
+    # and only applies when every failure was transient.
+    chain_sweeps: 3
+    chain_sweep_delay_seconds: 20
   timeouts:
     request_seconds: 120
     embedding_seconds: 45
