@@ -378,6 +378,11 @@ class CitationCandidate(BaseModel):
 
 class CitationVerification(BaseModel):
     candidate: CitationCandidate
+    #: The exact gap.claim this verification answers. Recorded rather than recovered
+    #: later by comparing text: the claims are Vietnamese and the titles English, so
+    #: word-overlap matching scored 0.00 and silently discarded every accepted
+    #: citation in the book.
+    claim: str = ""
     identity_confirmed: bool = False
     supports_claim: Literal["supports", "partial", "does_not_support",
                             "laundered", "unverifiable"] = "unverifiable"

@@ -155,6 +155,9 @@ class CitationVerifier(BaseAgent[list[CitationVerification]]):
                         f"{verification.true_primary_source[:80]}")
 
             chosen = accepted or _best_effort(attempts, gap)
+            # The loop knows exactly which gap this answers; recording it here is what
+            # lets the pipeline tell a sourced claim from an unsourced one.
+            chosen.claim = gap.claim
             results.append(chosen)
             self.log.info(
                 f"citation {'ACCEPTED' if chosen.verdict == 'accept' else 'REJECTED'}: "

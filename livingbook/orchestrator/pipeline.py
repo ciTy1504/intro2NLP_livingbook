@@ -586,6 +586,20 @@ class PipelineDriver:
 
 
 def _matches(verification: CitationVerification, gap: CitationGap) -> bool:
+    """Does this verification answer this gap?
+
+    By recorded identity, not by comparing the claim text to the paper title. That
+    comparison assumed both were English. This book's claims are Vietnamese and the
+    titles are not, so the overlap was 0.00 for every pair: "tinh gọn và hợp nhất
+    giao diện công cụ dưới chuẩn MCP" against "A Survey on Model Context Protocol"
+    shares no words at all. Every accepted citation was therefore discarded and every
+    claim reported unsourced, however many citations the verifier accepted — the
+    pipeline could not converge on a Vietnamese manuscript at all.
+    """
+    if verification.claim:
+        return verification.claim == gap.claim
+    # Older records predate the field; fall back to the title comparison rather than
+    # dropping them, but only where both sides are plausibly the same language.
     import re
     ta = set(re.findall(r"[a-z0-9]+", gap.claim.lower()))
     tb = set(re.findall(r"[a-z0-9]+", (verification.candidate.title or "").lower()))
